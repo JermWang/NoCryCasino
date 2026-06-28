@@ -74,53 +74,17 @@ export default function HomePage() {
               padding: "48px 0 36px",
             }}
           >
-            <pre
-              aria-label="No Cry Casino smiley"
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/ncc-poster.png"
+              alt="No Cry Casino — live KOL tracking, P2P markets"
               style={{
-                margin: 0,
-                whiteSpace: "pre",
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: "clamp(5px, .92vw, 11px)",
-                lineHeight: 1,
-                letterSpacing: "-.05em",
-                color: "#7CFF6B",
-                textShadow:
-                  "0 0 10px rgba(124,255,107,.8), 0 0 30px rgba(124,255,107,.5), 0 0 60px rgba(124,255,107,.3)",
-                animation: "ncc-glow 2.6s ease-in-out infinite",
+                width: "min(340px, 76vw)",
+                height: "auto",
+                filter: "drop-shadow(0 0 42px rgba(57,255,20,.3))",
+                animation: "ncc-glow 2.8s ease-in-out infinite",
               }}
-            >
-              {SMILEY_ASCII}
-            </pre>
-
-            <pre
-              aria-label="No Cry Casino"
-              style={{
-                margin: "1.6rem 0 0",
-                whiteSpace: "pre",
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: "clamp(7px, 1.25vw, 15px)",
-                lineHeight: 1.1,
-                letterSpacing: ".05em",
-                color: "#7CFF6B",
-                textShadow:
-                  "0 0 8px rgba(124,255,107,.7), 0 0 24px rgba(124,255,107,.4), 0 0 48px rgba(124,255,107,.2)",
-                animation: "ncc-glow 2.6s ease-in-out infinite .5s",
-              }}
-            >
-              {TITLE_ASCII}
-            </pre>
-
-            <div
-              style={{
-                marginTop: "1.7rem",
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 12,
-                letterSpacing: ".34em",
-                color: "rgba(124,255,107,.5)",
-              }}
-            >
-              LIVE KOL TRACKING • P2P MARKETS
-            </div>
+            />
 
             <div
               style={{

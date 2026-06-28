@@ -336,7 +336,7 @@ export function Header() {
           background: "rgba(0,0,0,.3)",
         }}
       >
-        <div style={{ display: "flex", width: "max-content", animation: "ncc-marquee 48s linear infinite" }}>
+        <div style={{ display: "flex", width: "max-content", animation: "ncc-marquee 80s linear infinite" }}>
           <TickerRow rows={tickerRows} />
           <TickerRow rows={tickerRows} ariaHidden />
         </div>
