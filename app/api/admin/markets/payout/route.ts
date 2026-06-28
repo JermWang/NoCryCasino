@@ -170,6 +170,15 @@ async function sendSol(args: { fromKeypair: any; toAddress: string; lamports: nu
   }, { maxRetries: 3, retryDelayMs: 1000 })
 }
 
+/** Read the current lamports balance of an address (with RPC fallback). */
+async function getAddressLamports(address: string): Promise<number> {
+  const { PublicKey } = await import("@solana/web3.js")
+  const pubkey = new PublicKey(address)
+  return withRpcFallback(async (connection) => {
+    return connection.getBalance(pubkey, "confirmed")
+  }, { maxRetries: 3, retryDelayMs: 1000 })
+}
+
 export async function POST(request: NextRequest) {
   const limited = rateLimit({ request, key: "admin:markets:payout", limit: 60, windowMs: 60_000 })
   if (limited) return limited
@@ -231,7 +240,10 @@ export async function POST(request: NextRequest) {
     if (grossPot <= 0) return NextResponse.json({ error: "No deposits found" }, { status: 400 })
     if (winnerTotal <= 0) return NextResponse.json({ error: "No winning deposits" }, { status: 400 })
 
-    // Calculate fee
+    // Calculate fee. The house fee is taken EXACTLY ONCE off the gross pot.
+    // Winners then split the remaining net pot proportionally to their stake.
+    // (Previously the fee was applied twice — once to derive `pot` and again
+    // per-winner — which underpaid winners and broke escrow reconciliation.)
     const feeConfig = await getFeeConfig()
     const fee_bps = body?.fee_bps ?? m.fee_bps ?? feeConfig.default_fee_bps
     const feeRatio = fee_bps / 10000
@@ -245,9 +257,12 @@ export async function POST(request: NextRequest) {
       .slice(0, max_payouts)
       .map((o) => {
         const dep = Number(o.deposit_amount_sol ?? 0)
-        const grossPayout = (dep / winnerTotal) * pot
-        const fee = grossPayout * feeRatio
-        const payout = grossPayout - fee
+        const share = winnerTotal > 0 ? dep / winnerTotal : 0
+        // Winner receives their proportional slice of the NET pot. No second fee.
+        const payout = share * pot
+        // Record this winner's proportional share of the single total fee so the
+        // sum of recorded fees reconciles to `totalFee`.
+        const fee = share * totalFee
         return { ...o, payout_amount_sol: payout, fee_amount_sol: fee }
       })
 
@@ -269,6 +284,39 @@ export async function POST(request: NextRequest) {
         payout_count: toPay.length,
         sample: toPay.slice(0, 5).map((p) => ({ order_id: p.id, to: p.wallet_address, amount_sol: p.payout_amount_sol, fee_sol: p.fee_amount_sol })),
       })
+    }
+
+    // Pre-send solvency assertion. The escrow must hold enough to cover every
+    // payout we intend to send PLUS the fee remittance for those same payouts,
+    // plus a small allowance for per-transfer network fees. If it cannot, we
+    // refuse outright — we never fall back to a partial/insolvent send that
+    // would leave winners short or the escrow over-drawn.
+    const LAMPORTS_PER_SOL = 1e9
+    const NETWORK_FEE_LAMPORTS = 5_000
+
+    const payable = toPay.filter((p) => p.payout_amount_sol >= min_payout && Math.floor(p.payout_amount_sol * LAMPORTS_PER_SOL) > 0)
+
+    const payoutLamportsTotal = payable.reduce((sum, p) => sum + Math.floor(p.payout_amount_sol * LAMPORTS_PER_SOL), 0)
+    const feeLamportsTotal = payable.reduce((sum, p) => sum + p.fee_amount_sol, 0)
+    const feeRemitLamports = fee_wallet ? Math.floor(feeLamportsTotal * LAMPORTS_PER_SOL) : 0
+    // One network fee per winner transfer, plus one for the fee remittance tx.
+    const networkFeeAllowance = NETWORK_FEE_LAMPORTS * (payable.length + (feeRemitLamports > 0 ? 1 : 0))
+    const requiredLamports = payoutLamportsTotal + feeRemitLamports + networkFeeAllowance
+
+    const escrowLamports = await getAddressLamports(m.escrow_wallet_address)
+    if (escrowLamports < requiredLamports) {
+      return NextResponse.json(
+        {
+          error: "Insufficient escrow balance for payout",
+          escrow_wallet_address: m.escrow_wallet_address,
+          escrow_balance_sol: escrowLamports / LAMPORTS_PER_SOL,
+          required_sol: requiredLamports / LAMPORTS_PER_SOL,
+          payout_total_sol: payoutLamportsTotal / LAMPORTS_PER_SOL,
+          fee_remit_sol: feeRemitLamports / LAMPORTS_PER_SOL,
+          payable_count: payable.length,
+        },
+        { status: 409 },
+      )
     }
 
     const keypair = await getKeypairForEscrowAddress(m.escrow_wallet_address)
@@ -380,6 +428,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Reconciliation: for a complete winner payout, paid_total + fee_collected
+    // should equal grossPot (escrow drains to ~0, modulo network fees and any
+    // sub-min-payout dust intentionally left behind). `residual` surfaces the gap.
+    const paidTotal = results
+      .filter((r) => typeof r.signature === "string" && r.signature.length > 0)
+      .reduce((sum, r) => sum + Number(r.amount_sol ?? 0), 0)
+    const disbursed = paidTotal + feeCollected
+    const residual = grossPot - disbursed
+
     return NextResponse.json({
       ok: true,
       dry_run,
@@ -392,6 +449,9 @@ export async function POST(request: NextRequest) {
       fee_wallet,
       fee_tx_signature: feeTxSignature,
       winner_total: winnerTotal,
+      paid_total: paidTotal,
+      disbursed,
+      residual,
       payout_count: results.length,
       results,
     })

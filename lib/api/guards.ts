@@ -1,5 +1,20 @@
 import type { NextRequest } from "next/server"
 import { NextResponse } from "next/server"
+import { timingSafeEqual } from "node:crypto"
+
+/** Constant-time string comparison that does not early-return on length. */
+function safeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder()
+  const ab = enc.encode(a)
+  const bb = enc.encode(b)
+  // timingSafeEqual throws on unequal lengths; burn an equal-length compare and
+  // return false so length differences don't create a timing side-channel.
+  if (ab.length !== bb.length) {
+    timingSafeEqual(ab, ab)
+    return false
+  }
+  return timingSafeEqual(ab, bb)
+}
 
 type RateLimitEntry = { count: number; resetAt: number }
 
@@ -60,7 +75,13 @@ export function requireBearerIfConfigured(args: {
     typeof expectedRaw === "string" ? expectedRaw.replace(/[\u0000-\u001F\u007F]/g, "").trim() : expectedRaw
 
   const prodRequired = args.productionRequired !== false
-  if (process.env.NODE_ENV === "production" && prodRequired && (!expected || expected.length === 0)) {
+  // FAIL CLOSED: a protected endpoint with no configured key is only allowed in
+  // local development (NODE_ENV === "development"). Every deployed environment
+  // (production, preview, staging, test, or unset) returns 500 rather than
+  // silently running with no auth. Closes the hole where a deploy not exactly
+  // tagged "production" exposed money-moving endpoints openly.
+  if (prodRequired && (!expected || expected.length === 0)) {
+    if (process.env.NODE_ENV === "development") return null
     return NextResponse.json({ error: "Server misconfigured" }, { status: 500 })
   }
 
@@ -71,7 +92,7 @@ export function requireBearerIfConfigured(args: {
   const m = auth.match(/^Bearer\s+(.+)$/i)
   const gotRaw = m?.[1] ?? null
   const got = typeof gotRaw === "string" ? gotRaw.replace(/[\u0000-\u001F\u007F]/g, "").trim() : gotRaw
-  if (!got || got !== expected) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (!got || !safeEqual(got, expected)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   return null
 }

@@ -375,3 +375,286 @@
    padding: 28px 22px;
    backdrop-filter: blur(10px);
  }
+
+/* ============================================================
+   Landing design system — "No Cry Casino"
+   World-class, commercial-grade surface built on top of the
+   green ASCII-shader background. Tokens scoped to .ncc-site so
+   they never leak into /pm or /leaderboard.
+   ============================================================ */
+.ncc-site {
+  --ncc-green: #7cff6b;
+  --ncc-green-soft: rgba(124, 255, 107, 0.72);
+  --ncc-green-dim: rgba(124, 255, 107, 0.16);
+  --ncc-ink: #e8ffe4;
+  --ncc-muted: rgba(214, 240, 208, 0.62);
+  --ncc-faint: rgba(214, 240, 208, 0.42);
+  --ncc-line: rgba(124, 255, 107, 0.14);
+  --ncc-line-strong: rgba(124, 255, 107, 0.28);
+  --ncc-glass: rgba(6, 14, 8, 0.55);
+  --ncc-glass-2: rgba(8, 18, 10, 0.42);
+  color: var(--ncc-ink);
+}
+
+/* Page rhythm */
+.ncc-shell {
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: 20px;
+}
+@media (min-width: 768px) {
+  .ncc-shell { padding-inline: 32px; }
+}
+
+.ncc-section {
+  position: relative;
+  padding-block: clamp(56px, 9vw, 112px);
+}
+.ncc-section--tight { padding-block: clamp(40px, 6vw, 72px); }
+
+.ncc-divider {
+  height: 1px;
+  width: 100%;
+  background: linear-gradient(90deg, transparent, var(--ncc-line-strong), transparent);
+}
+
+/* Eyebrow / section labels */
+.ncc-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--ncc-green-soft);
+}
+.ncc-eyebrow::before {
+  content: "";
+  width: 18px;
+  height: 1px;
+  background: var(--ncc-green-soft);
+  opacity: 0.8;
+}
+
+.ncc-h2 {
+  font-size: clamp(26px, 4vw, 42px);
+  line-height: 1.06;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ncc-ink);
+}
+.ncc-lede {
+  font-size: clamp(15px, 1.4vw, 18px);
+  line-height: 1.55;
+  color: var(--ncc-muted);
+}
+
+/* Gradient headline accent */
+.ncc-grad {
+  background: linear-gradient(180deg, #f4fff0 0%, var(--ncc-green) 120%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Glass surfaces */
+.ncc-glass {
+  position: relative;
+  background: var(--ncc-glass);
+  border: 1px solid var(--ncc-line);
+  border-radius: 16px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.ncc-glass-2 {
+  background: var(--ncc-glass-2);
+  border: 1px solid var(--ncc-line);
+  border-radius: 14px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.ncc-card {
+  transition: border-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease, background-color 0.25s ease;
+}
+.ncc-card:hover {
+  border-color: var(--ncc-line-strong);
+  transform: translateY(-3px);
+  background: rgba(10, 22, 12, 0.6);
+  box-shadow: 0 18px 50px -24px rgba(124, 255, 107, 0.45);
+}
+
+/* Buttons */
+.ncc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 46px;
+  padding-inline: 22px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.25s ease, background-color 0.2s ease,
+    border-color 0.2s ease, color 0.2s ease;
+  outline: none;
+}
+.ncc-btn:focus-visible {
+  box-shadow: 0 0 0 2px #060e08, 0 0 0 4px var(--ncc-green);
+}
+.ncc-btn-primary {
+  color: #03210a;
+  background: linear-gradient(180deg, #9dff8f 0%, #5ff04e 100%);
+  border: 1px solid rgba(124, 255, 107, 0.5);
+  box-shadow: 0 10px 32px -12px rgba(124, 255, 107, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.ncc-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 40px -12px rgba(124, 255, 107, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.ncc-btn-primary:active { transform: translateY(0); }
+.ncc-btn-ghost {
+  color: var(--ncc-ink);
+  background: rgba(124, 255, 107, 0.06);
+  border: 1px solid var(--ncc-line-strong);
+}
+.ncc-btn-ghost:hover {
+  transform: translateY(-2px);
+  background: rgba(124, 255, 107, 0.12);
+  border-color: var(--ncc-green-soft);
+}
+.ncc-btn-sm { height: 40px; padding-inline: 16px; font-size: 13px; }
+
+/* Pills / chips */
+.ncc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding-inline: 10px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ncc-green-soft);
+  background: rgba(124, 255, 107, 0.08);
+  border: 1px solid var(--ncc-line);
+}
+.ncc-pill-live {
+  color: var(--ncc-green);
+  border-color: var(--ncc-line-strong);
+}
+.ncc-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--ncc-green);
+  box-shadow: 0 0 8px rgba(124, 255, 107, 0.9);
+}
+.ncc-dot-live { animation: ncc-pulse-dot 1.6s ease-in-out infinite; }
+@keyframes ncc-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+
+/* Numeric emphasis */
+.ncc-num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Probability bar */
+.ncc-prob {
+  position: relative;
+  height: 7px;
+  width: 100%;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(216, 115, 115, 0.22);
+}
+.ncc-prob > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #4fe23f, #7cff6b);
+  box-shadow: 0 0 12px rgba(124, 255, 107, 0.5);
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Skeleton shimmer */
+.ncc-skel {
+  position: relative;
+  overflow: hidden;
+  background: rgba(124, 255, 107, 0.06);
+  border-radius: 8px;
+}
+.ncc-skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(124, 255, 107, 0.14), transparent);
+  animation: ncc-shimmer 1.5s infinite;
+}
+@keyframes ncc-shimmer {
+  100% { transform: translateX(100%); }
+}
+
+/* Reveal-on-scroll (progressive enhancement; visible by default) */
+.ncc-reveal {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ncc-reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .ncc-reveal.is-in {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* CA hero block */
+.ncc-ca-grid {
+  background-image:
+    linear-gradient(rgba(124, 255, 107, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 255, 107, 0.05) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+.ncc-ca-copy {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+  word-break: break-all;
+}
+
+/* Markets marquee (separate from the data ticker) */
+.ncc-mkt-marquee {
+  display: flex;
+  width: max-content;
+  gap: 14px;
+  animation: ncc-marquee 48s linear infinite;
+  will-change: transform;
+}
+.ncc-mkt-marquee:hover { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .ncc-mkt-marquee { animation: none; }
+}
+
+/* Header refinements (brand mark) */
+.ncc-brandmark {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-size: 15px;
+  color: var(--ncc-ink, #e8ffe4);
+}
+.ncc-brandmark b { color: #7cff6b; font-weight: 800; }

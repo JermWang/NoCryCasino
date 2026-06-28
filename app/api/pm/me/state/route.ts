@@ -73,25 +73,21 @@ export async function POST(request: NextRequest) {
       if (!used.ok) return NextResponse.json({ error: used.error }, { status: used.status })
     }
 
-    const [bal, positions, orders, deposits, withdrawals, claims] = await Promise.all([
-      supabase.from("user_balances").select("user_pubkey, available_collateral, reserved_collateral, updated_at").eq("user_pubkey", wallet_address).maybeSingle(),
-      supabase.from("positions").select("position_id, user_pubkey, outcome_id, yes_shares, reserved_yes_shares, avg_cost, updated_at").eq("user_pubkey", wallet_address).limit(500),
-      supabase.from("orders").select("order_id, outcome_id, user_pubkey, side, price, quantity, filled_quantity, status, tif, reserved_collateral, idempotency_key, created_at").eq("user_pubkey", wallet_address).order("created_at", { ascending: false }).limit(200),
+    const [balances, bets, deposits, withdrawals] = await Promise.all([
+      supabase.from("user_balances").select("mint, available_collateral, reserved_collateral, updated_at").eq("user_pubkey", wallet_address).limit(100),
+      supabase.from("pm_bets").select("bet_id, round_id, outcome_id, user_pubkey, side, amount, mint, fee_exempt, payout, fee, status, idempotency_key, created_at, settled_at").eq("user_pubkey", wallet_address).order("created_at", { ascending: false }).limit(100),
       supabase.from("escrow_deposits").select("deposit_id, user_pubkey, round_scope, amount, mint, tx_sig, status, created_at").eq("user_pubkey", wallet_address).order("created_at", { ascending: false }).limit(200),
       supabase.from("escrow_withdrawals").select("withdrawal_id, user_pubkey, amount, mint, destination_pubkey, tx_sig, status, idempotency_key, processing_nonce, processing_at, error, created_at").eq("user_pubkey", wallet_address).order("created_at", { ascending: false }).limit(200),
-      supabase.from("settlement_claims").select("claim_id, user_pubkey, outcome_id, round_id, yes_shares, final_outcome, claimable_amount, status, claimed_at, idempotency_key, created_at").eq("user_pubkey", wallet_address).order("created_at", { ascending: false }).limit(200),
     ])
 
-    const anyErr = bal.error || positions.error || orders.error || deposits.error || withdrawals.error || claims.error
+    const anyErr = balances.error || bets.error || deposits.error || withdrawals.error
     if (anyErr) {
       return NextResponse.json({
         error:
-          bal.error?.message ||
-          positions.error?.message ||
-          orders.error?.message ||
+          balances.error?.message ||
+          bets.error?.message ||
           deposits.error?.message ||
           withdrawals.error?.message ||
-          claims.error?.message ||
           "Failed to load state",
       }, { status: 500 })
     }
@@ -100,12 +96,10 @@ export async function POST(request: NextRequest) {
       ok: true,
       emergency_halt_active: await isEmergencyHaltActive(),
       wallet_address,
-      balance: bal.data ?? null,
-      positions: positions.data ?? [],
-      orders: orders.data ?? [],
+      balances: balances.data ?? [],
+      bets: bets.data ?? [],
       deposits: deposits.data ?? [],
       withdrawals: withdrawals.data ?? [],
-      claims: claims.data ?? [],
     })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? String(e) }, { status: 500 })

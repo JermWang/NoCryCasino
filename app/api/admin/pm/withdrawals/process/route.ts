@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/service"
 import { enforceMaxBodyBytes, rateLimit, requireBearerIfConfigured } from "@/lib/api/guards"
 import { isEmergencyHaltActive, logEscrowOperation } from "@/lib/escrow/security"
 import { withRpcFallback } from "@/lib/solana/rpc"
+import { isUsdcMint, getUsdcMint, buildUsdcTransfer, getUsdcAtaBalanceHuman } from "@/lib/solana/spl"
 
 export const runtime = "nodejs"
 
@@ -112,6 +113,70 @@ async function sendSol(args: { fromKeypair: any; toAddress: string; lamports: nu
   }, { maxRetries: 3, retryDelayMs: 1000 })
 }
 
+// Parse all configured escrow keypairs (honors PM_ESCROW_WALLET_ADDRESS).
+async function getEscrowKeypairs(): Promise<Array<{ address: string; keypair: any }>> {
+  const { Keypair, PublicKey } = await import("@solana/web3.js")
+
+  const requested = typeof process.env.PM_ESCROW_WALLET_ADDRESS === "string" ? process.env.PM_ESCROW_WALLET_ADDRESS.trim() : ""
+
+  const all = getEscrowWalletConfigs()
+    .filter((c) => typeof c.address === "string" && c.address.trim().length > 0)
+    .filter((c) => typeof c.secret === "string" && c.secret.trim().length > 0)
+
+  const candidates = requested ? all.filter((c) => c.address === requested) : all
+  if (candidates.length === 0) throw new Error(requested ? "PM_ESCROW_SECRET_MISSING" : "ESCROW_SECRET_MISSING")
+
+  return candidates.map((c) => {
+    new PublicKey(c.address)
+    let secret: Uint8Array
+    try {
+      secret = parseSecretKey(String(c.secret))
+    } catch (e: any) {
+      const msg = e?.message ?? String(e)
+      if (msg === "SECRET_KEY_LENGTH_INVALID") throw new Error("ESCROW_SECRET_KEY_INVALID_LENGTH")
+      throw new Error("ESCROW_SECRET_KEY_INVALID_FORMAT")
+    }
+    return { address: c.address, keypair: Keypair.fromSecretKey(secret) }
+  })
+}
+
+// Pick an escrow keypair whose USDC ATA covers `amountHuman` and that holds a
+// little SOL for fees / a possible destination-ATA rent. Throws if none does.
+async function pickKeypairForUsdc(amountHuman: number, mint: string): Promise<{ address: string; keypair: any }> {
+  const { PublicKey } = await import("@solana/web3.js")
+  const parsed = await getEscrowKeypairs()
+  const minLamportsForFees = 2_500_000
+
+  return withRpcFallback(async (connection) => {
+    for (const p of parsed) {
+      const bal = await getUsdcAtaBalanceHuman({ connection, owner: p.address, mint })
+      if (bal + 1e-9 < amountHuman) continue
+      const sol = await connection.getBalance(new PublicKey(p.address), "confirmed")
+      if (typeof sol !== "number" || !Number.isFinite(sol) || sol < minLamportsForFees) continue
+      return p
+    }
+    throw new Error("ESCROW_USDC_INSUFFICIENT")
+  }, { maxRetries: 2, retryDelayMs: 500 })
+}
+
+async function sendUsdc(args: { fromKeypair: any; toOwner: string; amountHuman: number; mint: string }): Promise<string> {
+  return withRpcFallback(async (connection) => {
+    const tx = await buildUsdcTransfer({
+      connection,
+      fromOwnerKeypair: args.fromKeypair,
+      toOwner: args.toOwner,
+      amountHuman: args.amountHuman,
+      mint: args.mint,
+    })
+    const blockhash = tx.recentBlockhash as string
+    const currentHeight = await connection.getBlockHeight("confirmed")
+    const lastValidBlockHeight = currentHeight + 150
+    const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 })
+    await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed")
+    return sig
+  }, { maxRetries: 3, retryDelayMs: 1000 })
+}
+
 export async function POST(request: NextRequest) {
   const limited = rateLimit({ request, key: "admin:pm:withdrawals:process", limit: 30, windowMs: 60_000 })
   if (limited) return limited
@@ -139,7 +204,7 @@ export async function POST(request: NextRequest) {
 
     const { data: rows, error } = await supabase
       .from("escrow_withdrawals")
-      .select("withdrawal_id, user_pubkey, amount, destination_pubkey, tx_sig, status")
+      .select("withdrawal_id, user_pubkey, amount, mint, destination_pubkey, tx_sig, status")
       .eq("status", "REQUESTED")
       .is("tx_sig", null)
       .order("created_at", { ascending: true })
@@ -154,6 +219,7 @@ export async function POST(request: NextRequest) {
       const withdrawal_id = String((w as any)?.withdrawal_id ?? "").trim()
       const toAddress = String((w as any)?.destination_pubkey ?? "").trim()
       const amount = Number((w as any)?.amount)
+      const rowMint = String((w as any)?.mint ?? "SOL").trim() || "SOL"
       if (!withdrawal_id || !toAddress || !Number.isFinite(amount) || amount <= 0) {
         results.push({ withdrawal_id, ok: false, error: "Invalid withdrawal row" })
         continue
@@ -162,7 +228,7 @@ export async function POST(request: NextRequest) {
       const processing_nonce = `${Date.now()}-${withdrawal_id}-${Math.random().toString(16).slice(2)}`
 
       if (dry_run) {
-        results.push({ withdrawal_id, ok: true, dry_run: true, to: toAddress, amount_sol: amount })
+        results.push({ withdrawal_id, ok: true, dry_run: true, to: toAddress, amount_sol: amount, mint: rowMint })
         continue
       }
 
@@ -182,17 +248,46 @@ export async function POST(request: NextRequest) {
         continue
       }
 
+      // Use the mint claimed under the processing-nonce lock (authoritative).
+      const mint = String(begin?.mint ?? rowMint).trim() || "SOL"
+      const isUsdc = isUsdcMint(mint)
+      const isSol = mint === "SOL"
+      if (!isSol && !isUsdc) {
+        const failMsg = "UNSUPPORTED_MINT"
+        await supabase.rpc("pm_fail_withdrawal", {
+          p_withdrawal_id: withdrawal_id,
+          p_processing_nonce: processing_nonce,
+          p_error: failMsg,
+        })
+        results.push({ withdrawal_id, ok: false, error: failMsg })
+        continue
+      }
+
       try {
-        const lamports = Math.floor(amount * 1e9)
-        const { address: escrowAddress, keypair } = await pickKeypairForLamports(lamports)
-        const sig = await sendSol({ fromKeypair: keypair, toAddress, lamports })
+        let sig: string
+        let escrowAddress: string
+        let fromWallet: string | undefined
+
+        if (isUsdc) {
+          const usdcMint = getUsdcMint()
+          const picked = await pickKeypairForUsdc(amount, usdcMint)
+          escrowAddress = picked.address
+          fromWallet = picked.keypair.publicKey?.toBase58?.() ?? undefined
+          sig = await sendUsdc({ fromKeypair: picked.keypair, toOwner: toAddress, amountHuman: amount, mint: usdcMint })
+        } else {
+          const lamports = Math.floor(amount * 1e9)
+          const picked = await pickKeypairForLamports(lamports)
+          escrowAddress = picked.address
+          fromWallet = picked.keypair.publicKey?.toBase58?.() ?? undefined
+          sig = await sendSol({ fromKeypair: picked.keypair, toAddress, lamports })
+        }
 
         await logEscrowOperation({
           operation: "payout",
           escrow_address: escrowAddress,
           amount_sol: amount,
           signature: sig,
-          from_wallet: keypair.publicKey?.toBase58?.() ?? undefined,
+          from_wallet: fromWallet,
           to_wallet: toAddress,
         })
 
@@ -207,7 +302,7 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        results.push({ withdrawal_id, ok: true, status: "SENT", tx_sig: sig })
+        results.push({ withdrawal_id, ok: true, status: "SENT", mint, tx_sig: sig })
       } catch (e: any) {
         const msg = e?.message ?? String(e)
         await supabase.rpc("pm_fail_withdrawal", {

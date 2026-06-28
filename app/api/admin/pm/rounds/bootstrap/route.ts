@@ -13,6 +13,7 @@ type Body = {
   lock_ts?: string
   settle_delay_minutes?: number
   rake_bps?: number
+  collateral_mint?: string
   limit_kols?: number
   top_n?: number
   kol_selection?: "tracked_rank" | "active"
@@ -188,7 +189,17 @@ export async function POST(request: NextRequest) {
       ? Math.floor(body.settle_delay_minutes)
       : 15
 
-    const rake_bps = typeof body?.rake_bps === "number" && Number.isFinite(body.rake_bps) ? Math.max(0, Math.min(1000, Math.floor(body.rake_bps))) : 0
+    const rakeDefault = Number(process.env.HOUSE_FEE_BPS ?? 250)
+    const rakeRaw =
+      typeof body?.rake_bps === "number" && Number.isFinite(body.rake_bps)
+        ? body.rake_bps
+        : Number.isFinite(rakeDefault)
+          ? rakeDefault
+          : 250
+    const rake_bps = Math.max(0, Math.min(1000, Math.floor(rakeRaw)))
+
+    // Per-mint collateral: 'SOL' (default) or a USDC mint string. Persisted on the round.
+    const collateral_mint = typeof body?.collateral_mint === "string" && body.collateral_mint.trim().length > 0 ? body.collateral_mint.trim() : "SOL"
 
     const limit_kols = typeof body?.limit_kols === "number" && Number.isFinite(body.limit_kols) && body.limit_kols > 0 ? Math.min(2000, Math.floor(body.limit_kols)) : 200
 
@@ -249,7 +260,7 @@ export async function POST(request: NextRequest) {
       if (!escrow_wallet_pubkey) return NextResponse.json({ error: "Missing escrow wallet addresses" }, { status: 500 })
 
       const inputs_hash = createHash("sha256")
-        .update(JSON.stringify({ market_type, startTs, lockTs, settleTs, escrow_wallet_pubkey, rake_bps }))
+        .update(JSON.stringify({ market_type, startTs, lockTs, settleTs, escrow_wallet_pubkey, rake_bps, collateral_mint }))
         .digest("hex")
         .slice(0, 32)
 
@@ -261,7 +272,7 @@ export async function POST(request: NextRequest) {
           lock_ts: lockTs,
           settle_ts: settleTs,
           status: "OPEN",
-          collateral_mint: "SOL",
+          collateral_mint,
           escrow_wallet_pubkey,
           rake_bps,
           inputs_hash,
@@ -295,6 +306,8 @@ export async function POST(request: NextRequest) {
         round_id,
         market_type,
         lock_ts: lockTs,
+        collateral_mint,
+        rake_bps,
         outcomes: outcomeRows.length,
         kol_selection: kolSelection,
         min_recent_txs: kolSelection === "active" ? minRecentTxs : null,

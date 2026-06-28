@@ -167,44 +167,25 @@ export async function POST(request: NextRequest) {
       const winners = eligible.slice(0, top_n).map((x) => x.wallet_address)
 
       if (!dry_run) {
-        const { error: setHashErr } = await supabase
-          .from("market_rounds")
-          .update({ snapshot_hash: snapshot.snapshot_hash })
-          .eq("round_id", r.round_id)
-          .eq("status", "SETTLING")
+        // Atomic parimutuel settlement: resolves every outcome YES iff its KOL is
+        // in `winners`, pays each outcome's winning side from BOTH pools (honoring
+        // per-bet $NOCRY fee waivers), records rake, and flips the round SETTLED.
+        // Solvency is guaranteed by the RPC (never pays more than was collected).
+        const { data: settleData, error: settleErr } = await supabase.rpc("pm_settle_round_parimutuel", {
+          p_round_id: r.round_id,
+          p_winner_wallets: winners,
+          p_snapshot_hash: snapshot.snapshot_hash,
+        })
 
-        if (setHashErr) return NextResponse.json({ error: setHashErr.message }, { status: 500 })
+        if (settleErr) {
+          results.push({ round_id: r.round_id, window_key, closes_at, snapshot_hash: snapshot.snapshot_hash, winners, error: settleErr.message })
+          continue
+        }
 
-        const { data: outcomeRows, error: outErr } = await supabase
-          .from("outcome_markets")
-          .select("outcome_id, kol_wallet_address")
-          .eq("round_id", r.round_id)
-          .limit(5000)
-
-        if (outErr) return NextResponse.json({ error: outErr.message }, { status: 500 })
-
-        const outs = Array.isArray(outcomeRows) ? outcomeRows : []
-        const winSet = new Set(winners)
-
-        const updates = outs.map((o: any) => ({
-          outcome_id: o.outcome_id,
-          status: "SETTLED" as const,
-          final_outcome: winSet.has(String(o.kol_wallet_address)),
-        }))
-
-        const { error: upErr } = await supabase.from("outcome_markets").upsert(updates, { onConflict: "outcome_id" })
-        if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 })
-
-        const { error: roundUpErr } = await supabase
-          .from("market_rounds")
-          .update({ status: "SETTLED", snapshot_hash: snapshot.snapshot_hash })
-          .eq("round_id", r.round_id)
-          .eq("status", "SETTLING")
-
-        if (roundUpErr) return NextResponse.json({ error: roundUpErr.message }, { status: 500 })
+        results.push({ round_id: r.round_id, window_key, closes_at, snapshot_hash: snapshot.snapshot_hash, winners, settlement: settleData })
+      } else {
+        results.push({ round_id: r.round_id, window_key, closes_at, snapshot_hash: snapshot.snapshot_hash, winners, dry_run: true })
       }
-
-      results.push({ round_id: r.round_id, window_key, closes_at, snapshot_hash: snapshot.snapshot_hash, winners })
     }
 
     return NextResponse.json({ ok: true, dry_run, settled: results.length, results, top_n })

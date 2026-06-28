@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { Menu, Search } from "lucide-react"
 import { WalletButton } from "@/components/wallet-button"
+import { NocryCaBadge } from "@/components/nocry-ca-badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -23,10 +24,9 @@ export function Header() {
   const [solPriceUsd, setSolPriceUsd] = useState<number | null>(null)
 
   const navLinks = [
-    { href: "/", label: "Home" },
-    { href: "/markets", label: "Markets" },
-    { href: "/pm", label: "Prediction Markets" },
+    { href: "/pm", label: "Markets" },
     { href: "/leaderboard", label: "Leaderboard" },
+    { href: "/#how-it-works", label: "How it works" },
   ]
 
   useEffect(() => {
@@ -68,9 +68,12 @@ export function Header() {
     <header className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
       <div className="container mx-auto px-4 h-14 flex items-center gap-4">
         <div className="flex items-center gap-3">
-          <Link href="/" className="ncc-nav-logo" title="No Cry Casino">
+          <Link href="/" className="ncc-nav-logo flex items-center gap-2" title="No Cry Casino">
             <span className="ncc-nav-diamond" aria-hidden>
               ◆
+            </span>
+            <span className="ncc-brandmark hidden sm:inline">
+              NO CRY <b>CASINO</b>
             </span>
             <span className="sr-only">No Cry Casino</span>
           </Link>
@@ -128,12 +131,16 @@ export function Header() {
             />
           </div>
 
-          <Button asChild className="h-9 px-3">
-            <a href="https://join.pump.fun/HSag/kolscan/" target="_blank" rel="noreferrer">
-              Pump app
-            </a>
+          <Button asChild className="h-9 px-4 font-semibold">
+            <Link href="/pm">Launch App</Link>
           </Button>
         </div>
+
+        <NocryCaBadge className="hidden sm:inline-flex" />
+
+        <Button asChild variant="outline" size="sm" className="hidden bg-transparent font-semibold md:inline-flex lg:hidden">
+          <Link href="/pm">Launch</Link>
+        </Button>
 
         <WalletButton />
       </div>

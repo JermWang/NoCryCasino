@@ -10,6 +10,7 @@ export const runtime = "nodejs"
 type Body = {
   wallet_address: string
   amount_sol: number
+  mint?: string
   destination_pubkey: string
   idempotency_key: string
   nonce?: string
@@ -34,6 +35,8 @@ export async function POST(request: NextRequest) {
     const wallet_address = String(body?.wallet_address ?? "").trim()
     const destination_pubkey = String(body?.destination_pubkey ?? "").trim()
     const amount_sol = Number(body?.amount_sol)
+    // Per-mint custody: 'SOL' or a USDC mint string. Defaults to SOL when omitted.
+    const mint = typeof body?.mint === "string" && body.mint.trim().length > 0 ? body.mint.trim() : "SOL"
     const idempotency_key = String(body?.idempotency_key ?? "").trim()
     const nonce = typeof body?.nonce === "string" ? body.nonce.trim() : ""
     const issued_at = String(body?.issued_at ?? "").trim()
@@ -42,6 +45,7 @@ export async function POST(request: NextRequest) {
     if (!wallet_address) return NextResponse.json({ error: "Missing wallet_address" }, { status: 400 })
     if (!destination_pubkey) return NextResponse.json({ error: "Missing destination_pubkey" }, { status: 400 })
     if (!Number.isFinite(amount_sol) || amount_sol <= 0) return NextResponse.json({ error: "Invalid amount_sol" }, { status: 400 })
+    if (!mint) return NextResponse.json({ error: "Missing mint" }, { status: 400 })
     if (!idempotency_key || idempotency_key.length < 8) return NextResponse.json({ error: "Missing idempotency_key" }, { status: 400 })
     if (nonce.length > 0 && nonce.length < 8) return NextResponse.json({ error: "Invalid nonce" }, { status: 400 })
     if (!issued_at) return NextResponse.json({ error: "Missing issued_at" }, { status: 400 })
@@ -57,6 +61,7 @@ export async function POST(request: NextRequest) {
       wallet_address,
       destination_pubkey,
       amount_sol: String(amount_sol),
+      mint,
       idempotency_key,
       ...(nonce.length > 0 ? { nonce } : {}),
       issued_at,
@@ -91,7 +96,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase.rpc("pm_request_withdrawal", {
       p_user_pubkey: wallet_address,
       p_amount: amount_sol,
-      p_mint: "SOL",
+      p_mint: mint,
       p_destination_pubkey: destination_pubkey,
       p_idempotency_key: idempotency_key,
     })

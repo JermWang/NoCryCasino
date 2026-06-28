@@ -1,366 +1,371 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useRef, useState } from "react"
-import { useConnection, useWallet } from "@solana/wallet-adapter-react"
-import { Header } from "@/components/header"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useWallet } from "@solana/wallet-adapter-react"
+import { useWalletModal } from "@solana/wallet-adapter-react-ui"
+import {
+  ArrowLeft,
+  RefreshCw,
+  TrendingUp,
+  Users,
+  Layers,
+  Droplets,
+  Wallet,
+  ArrowUpDown,
+  ChevronRight,
+  Trophy,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { useToast } from "@/hooks/use-toast"
-import { depositToEscrowAddress } from "@/lib/solana/escrow"
+import { Badge } from "@/components/ui/badge"
+import { PmShell } from "@/components/pm/pm-shell"
+import { OutcomeCard } from "@/components/pm/outcome-card"
+import { CountdownPill, PayoutExplainer, FeeWaiverBadge } from "@/components/pm/pm-ui"
+import { usePmState } from "@/components/pm/use-pm-state"
+import { summarizeRound, type OutcomeRow, type RoundRow } from "@/components/pm/types"
+import { formatAmount, formatCompact, impliedYesPct, isPastLock, mintLabel, shortAddress } from "@/components/pm/pm-client"
 
-type RoundRow = {
-  round_id: string
-  market_type: "DAILY" | "WEEKLY" | "MONTHLY"
-  start_ts: string
-  lock_ts: string
-  settle_ts: string
-  status: string
-  collateral_mint: string
-  escrow_wallet_pubkey: string
-  rake_bps: number
-  snapshot_hash: string | null
-}
+type OutcomeSort = "volume" | "yes" | "no" | "az"
 
-type OutcomeRow = {
-  outcome_id: string
-  round_id: string
-  kol_wallet_address: string
-  question_text: string
-  status: string
-  final_outcome: boolean | null
-  created_at: string
-  kols?: {
-    display_name: string | null
-    avatar_url: string | null
-    twitter_url: string | null
-    twitter_handle: string | null
-  } | null
-}
+async function loadRound(roundId: string): Promise<{ round: RoundRow; outcomes: OutcomeRow[] }> {
+  const res = await fetch(`/api/pm/rounds/${encodeURIComponent(roundId)}`)
+  const json = (await res.json().catch(() => null)) as any
+  if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load round")
 
-function base64FromBytes(bytes: Uint8Array): string {
-  let binary = ""
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!)
-  return btoa(binary)
-}
+  const round = json.round as RoundRow
+  let outcomes: OutcomeRow[] = Array.isArray(json?.outcomes) ? (json.outcomes as OutcomeRow[]) : []
 
-function makeNonce(): string {
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`
-}
+  if (outcomes.length === 0) {
+    const r2 = await fetch(`/api/pm/rounds/${encodeURIComponent(roundId)}/outcomes`)
+    const j2 = (await r2.json().catch(() => null)) as any
+    if (r2.ok && j2?.ok && Array.isArray(j2?.outcomes)) {
+      outcomes = j2.outcomes as OutcomeRow[]
+    }
+  }
 
-function buildPmMessage(title: string, fields: Record<string, string>): string {
-  const lines = [title]
-  for (const [k, v] of Object.entries(fields)) lines.push(`${k}=${v}`)
-  return lines.join("\n")
+  return { round, outcomes }
 }
 
 export default function PmRoundPage({ params }: { params: { roundId: string } }) {
-  const { toast } = useToast()
-  const { connection } = useConnection()
-  const { publicKey, connected, connect, connecting, signMessage, sendTransaction, wallet } = useWallet()
+  const { connected } = useWallet()
+  const { setVisible } = useWalletModal()
+  const { state, refresh, availableFor } = usePmState()
+
+  const roundId = useMemo(() => decodeURIComponent(params.roundId ?? ""), [params.roundId])
 
   const [round, setRound] = useState<RoundRow | null>(null)
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [sort, setSort] = useState<OutcomeSort>("volume")
 
-  const [depositAmount, setDepositAmount] = useState("0.5")
-  const [depositing, setDepositing] = useState(false)
-
-  const [meState, setMeState] = useState<any>(null)
-  const refreshing = useRef(false)
-
-  const roundId = useMemo(() => decodeURIComponent(params.roundId ?? ""), [params.roundId])
-
-  useEffect(() => {
-    let mounted = true
-
-    async function load() {
-      setLoading(true)
+  const reload = useCallback(async () => {
+    try {
+      const { round: r, outcomes: o } = await loadRound(roundId)
+      setRound(r)
+      setOutcomes(o)
       setError(null)
-      try {
-        const [r1, r2] = await Promise.all([
-          fetch(`/api/pm/rounds/${encodeURIComponent(roundId)}`),
-          fetch(`/api/pm/rounds/${encodeURIComponent(roundId)}/outcomes`),
-        ])
-
-        const j1 = (await r1.json().catch(() => null)) as any
-        const j2 = (await r2.json().catch(() => null)) as any
-
-        if (!r1.ok || !j1?.ok) throw new Error(j1?.error ?? "Failed to load round")
-        if (!r2.ok || !j2?.ok) throw new Error(j2?.error ?? "Failed to load outcomes")
-
-        if (!mounted) return
-        setRound((j1.round ?? null) as RoundRow | null)
-        setOutcomes(Array.isArray(j2?.outcomes) ? (j2.outcomes as OutcomeRow[]) : [])
-        setLoading(false)
-      } catch (e: any) {
-        if (!mounted) return
-        setError(e?.message ?? String(e))
-        setRound(null)
-        setOutcomes([])
-        setLoading(false)
-      }
-    }
-
-    if (roundId) void load()
-
-    return () => {
-      mounted = false
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
+      setRound(null)
+      setOutcomes([])
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
     }
   }, [roundId])
 
-  async function refreshMe() {
-    if (!publicKey || !signMessage) return
-    if (refreshing.current) return
-    refreshing.current = true
-    try {
-      const wallet_address = publicKey.toBase58()
-      const issued_at = new Date().toISOString()
-      const nonce = makeNonce()
+  useEffect(() => {
+    if (!roundId) return
+    setLoading(true)
+    void reload()
+  }, [roundId, reload])
 
-      const message = buildPmMessage("NoCryCasino PM Me v1", {
-        wallet_address,
-        nonce,
-        issued_at,
-      })
+  const currency = mintLabel(round?.collateral_mint)
+  const locked = round ? isPastLock(round.lock_ts) : false
+  const isOpen = round?.status === "OPEN"
+  const bettingClosed = !isOpen || locked
+  const available = availableFor(round?.collateral_mint)
+  const rakeBps = round?.rake_bps ?? 250
 
-      const sigBytes = await signMessage(new TextEncoder().encode(message))
-      const signature_base64 = base64FromBytes(sigBytes)
+  const summary = useMemo(
+    () => (round ? summarizeRound(round, outcomes) : null),
+    [round, outcomes],
+  )
 
-      const res = await fetch("/api/pm/me/state", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ wallet_address, nonce, issued_at, signature_base64, message }),
-      })
+  // Detect $NOCRY fee waiver: if any of the user's recorded bets are fee-exempt,
+  // they qualify. Otherwise show the generic eligibility note.
+  const feeWaived = useMemo(() => {
+    const bets = state?.bets ?? []
+    return bets.some((b) => b.fee_exempt === true)
+  }, [state])
 
-      const json = (await res.json().catch(() => null)) as any
-      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load state")
-      setMeState(json)
-    } catch (e: any) {
-      setMeState(null)
-      toast({ title: "PM state", description: e?.message ?? String(e), variant: "destructive" })
-    } finally {
-      refreshing.current = false
-    }
+  const sortedOutcomes = useMemo(() => {
+    const list = outcomes.slice()
+    list.sort((a, b) => {
+      switch (sort) {
+        case "volume":
+          return Number(b.total_pool ?? 0) - Number(a.total_pool ?? 0)
+        case "yes":
+          return impliedYesPct(b.yes_pool, b.no_pool, b.yes_prob) - impliedYesPct(a.yes_pool, a.no_pool, a.yes_prob)
+        case "no":
+          return impliedYesPct(a.yes_pool, a.no_pool, a.yes_prob) - impliedYesPct(b.yes_pool, b.no_pool, b.yes_prob)
+        case "az": {
+          const an = a.kols?.display_name ?? a.kol_wallet_address
+          const bn = b.kols?.display_name ?? b.kol_wallet_address
+          return an.localeCompare(bn)
+        }
+        default:
+          return 0
+      }
+    })
+    return list
+  }, [outcomes, sort])
+
+  function onBetPlaced() {
+    void reload()
+    void refresh({ silent: true })
   }
 
-  useEffect(() => {
-    if (connected) void refreshMe()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected, publicKey?.toBase58()])
-
-  async function depositAndCredit() {
-    if (!round) return
-    if (!publicKey || !sendTransaction) {
-      toast({ title: "Wallet not connected", description: "Connect your wallet to deposit", variant: "destructive" })
-      return
-    }
-
-    if (!wallet?.adapter?.connected) {
-      try {
-        await connect()
-      } catch {
-        toast({ title: "Connection failed", description: "Please reconnect your wallet", variant: "destructive" })
-        return
-      }
-    }
-
-    if (!signMessage) {
-      toast({ title: "Wallet unsupported", description: "Your wallet doesn't support message signing", variant: "destructive" })
-      return
-    }
-
-    const amount = Number(depositAmount)
-    if (!Number.isFinite(amount) || amount <= 0) {
-      toast({ title: "Invalid amount", description: "Deposit amount must be > 0", variant: "destructive" })
-      return
-    }
-
-    setDepositing(true)
-
-    try {
-      const tx_sig = await depositToEscrowAddress(
-        connection,
-        publicKey,
-        amount,
-        round.escrow_wallet_pubkey,
-        sendTransaction,
-      )
-
-      const wallet_address = publicKey.toBase58()
-      const issued_at = new Date().toISOString()
-      const nonce = makeNonce()
-
-      const message = buildPmMessage("NoCryCasino PM Deposit Credit v1", {
-        wallet_address,
-        tx_sig,
-        min_amount_sol: String(amount),
-        mint: "SOL",
-        round_scope: round.round_id,
-        nonce,
-        issued_at,
-      })
-
-      const sigBytes = await signMessage(new TextEncoder().encode(message))
-      const signature_base64 = base64FromBytes(sigBytes)
-
-      const res = await fetch("/api/pm/deposits/credit", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          wallet_address,
-          tx_sig,
-          min_amount_sol: amount,
-          mint: "SOL",
-          round_scope: round.round_id,
-          nonce,
-          issued_at,
-          signature_base64,
-          message,
-        }),
-      })
-
-      const json = (await res.json().catch(() => null)) as any
-      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to credit deposit")
-
-      toast({ title: "Deposit credited", description: `+${amount.toFixed(3)} SOL` })
-      await refreshMe()
-    } catch (e: any) {
-      toast({ title: "Deposit failed", description: e?.message ?? String(e), variant: "destructive" })
-    } finally {
-      setDepositing(false)
-    }
+  function handleRefresh() {
+    setRefreshing(true)
+    void reload()
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen">
-        <Header />
-        <main className="container mx-auto px-4 py-8">
-          <div className="rounded-xl border border-border/60 bg-card/50 p-8 text-center text-muted-foreground">Loading…</div>
-        </main>
-      </div>
+      <PmShell maxWidth="6xl">
+        <BackLink />
+        <div className="mb-6 h-32 animate-pulse rounded-2xl bg-card/40" />
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-72 animate-pulse rounded-2xl bg-card/40" />
+          ))}
+        </div>
+      </PmShell>
     )
   }
 
-  if (error || !round) {
+  if (error || !round || !summary) {
     return (
-      <div className="min-h-screen">
-        <Header />
-        <main className="container mx-auto px-4 py-8">
-          <div className="rounded-xl border border-border/60 bg-card/50 p-8 text-center text-muted-foreground">
-            Failed to load round: {error ?? "Not found"}
-          </div>
-        </main>
-      </div>
+      <PmShell maxWidth="6xl">
+        <BackLink />
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center text-red-400">
+          Failed to load round: {error ?? "Not found"}
+        </div>
+      </PmShell>
     )
   }
 
-  const bal = meState?.balance
-  const available = typeof bal?.available_collateral === "number" ? bal.available_collateral : Number(bal?.available_collateral ?? 0)
-  const reserved = typeof bal?.reserved_collateral === "number" ? bal.reserved_collateral : Number(bal?.reserved_collateral ?? 0)
+  const settledCount = outcomes.filter((o) => o.status === "SETTLED").length
+  const activeCount = outcomes.filter((o) => o.status === "ACTIVE").length
 
   return (
-    <div className="min-h-screen">
-      <Header />
+    <PmShell maxWidth="6xl">
+      <BackLink />
 
-      <main className="container mx-auto px-4 py-8">
-        <div className="mb-6 flex items-start justify-between gap-4">
+      {/* Hero */}
+      <div className="mb-6 overflow-hidden rounded-2xl border border-border/50 bg-card/40 backdrop-blur-sm">
+        <div className="flex flex-col gap-4 p-6 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold truncate">{round.round_id}</h1>
-            <div className="mt-1 text-sm text-muted-foreground">
-              {round.market_type} • locks {new Date(round.lock_ts).toLocaleString()} • settles {new Date(round.settle_ts).toLocaleString()} • {round.status}
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">{round.market_type}</Badge>
+              <Badge variant={isOpen && !locked ? "default" : "outline"}>
+                {locked && isOpen ? "LOCKED" : round.status}
+              </Badge>
+              <Badge variant="outline">Stake in {currency}</Badge>
+              {rakeBps > 0 && <Badge variant="outline">{(rakeBps / 100).toFixed(2).replace(/\.00$/, "")}% rake</Badge>}
             </div>
-            <div className="mt-2 text-xs text-muted-foreground break-all">Escrow: {round.escrow_wallet_pubkey}</div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              {round.market_type.charAt(0) + round.market_type.slice(1).toLowerCase()} KOL Performance Round
+            </h1>
+            <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+              Bet YES or NO on each KOL. Winners split both pools pro-rata, minus rake.
+            </p>
+            <div className="mt-3">
+              <FeeWaiverBadge qualifies={connected && feeWaived ? true : undefined} />
+            </div>
           </div>
 
-          <div className="flex gap-2">
-            {!connected ? (
-              <Button onClick={() => connect()} disabled={connecting} className="h-9">
-                {connecting ? "Connecting…" : "Connect"}
+          <div className="flex shrink-0 flex-col items-start gap-3 md:items-end">
+            <CountdownPill lockTs={round.lock_ts} closed={bettingClosed} />
+            <div className="flex items-center gap-2">
+              {connected ? (
+                <Link
+                  href="/pm/me"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-background/40 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <Wallet className="h-3.5 w-3.5" />
+                  <span className="font-semibold tabular-nums text-foreground">
+                    {formatAmount(available, 3)} {currency}
+                  </span>
+                </Link>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => setVisible(true)}>
+                  Connect wallet
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={handleRefresh} className="gap-1.5">
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
               </Button>
-            ) : (
-              <Button onClick={() => refreshMe()} className="h-9" variant="outline">
-                Refresh
-              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Stat row */}
+        <div className="grid grid-cols-2 gap-px border-t border-border/40 bg-border/40 md:grid-cols-4">
+          <HeroStat icon={<TrendingUp className="h-4 w-4" />} label="Total volume" value={`${formatCompact(summary.totalPool)} ${currency}`} />
+          <HeroStat icon={<Droplets className="h-4 w-4" />} label="Liquidity (YES/NO)" value={`${formatCompact(summary.yesPool)} / ${formatCompact(summary.noPool)}`} />
+          <HeroStat icon={<Users className="h-4 w-4" />} label="Total bettors" value={String(summary.bettorCount)} />
+          <HeroStat icon={<Layers className="h-4 w-4" />} label="Markets" value={`${activeCount} active${settledCount > 0 ? ` · ${settledCount} settled` : ""}`} />
+        </div>
+      </div>
+
+      {!connected && (
+        <div className="mb-6 flex flex-col items-start justify-between gap-3 rounded-xl border border-border/40 bg-card/30 p-4 text-sm text-muted-foreground sm:flex-row sm:items-center">
+          <span>
+            Connect a wallet and deposit collateral on your{" "}
+            <Link href="/pm/me" className="text-emerald-400 hover:underline">
+              account page
+            </Link>{" "}
+            to start betting.
+          </span>
+          <Button size="sm" onClick={() => setVisible(true)} className="gap-2">
+            <Wallet className="h-4 w-4" /> Connect wallet
+          </Button>
+        </div>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        {/* Outcomes */}
+        <div>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">
+              Markets <span className="text-muted-foreground">({outcomes.length})</span>
+            </h2>
+            {outcomes.length > 1 && (
+              <div className="relative inline-flex items-center">
+                <ArrowUpDown className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as OutcomeSort)}
+                  aria-label="Sort outcomes"
+                  className="h-9 cursor-pointer appearance-none rounded-lg border border-border/40 bg-card/30 pl-8 pr-8 text-sm font-medium backdrop-blur-sm focus:border-emerald-500/50 focus:outline-none"
+                >
+                  <option value="volume">Top volume</option>
+                  <option value="yes">Highest YES</option>
+                  <option value="no">Highest NO</option>
+                  <option value="az">A–Z</option>
+                </select>
+                <ChevronRight className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 rotate-90 text-muted-foreground" />
+              </div>
             )}
           </div>
-        </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card className="border-border/60 bg-card/50">
-            <CardHeader>
-              <CardTitle>Balance</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {!connected ? (
-                <div className="text-sm text-muted-foreground">Connect a wallet to view your PM balance.</div>
-              ) : (
-                <div className="space-y-1 text-sm">
-                  <div>Available: {Number.isFinite(available) ? available.toFixed(4) : "0.0000"} SOL</div>
-                  <div>Reserved: {Number.isFinite(reserved) ? reserved.toFixed(4) : "0.0000"} SOL</div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/60 bg-card/50">
-            <CardHeader>
-              <CardTitle>Deposit</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-xs text-muted-foreground">
-                Send SOL to this round’s escrow wallet and we’ll credit your PM balance.
-              </div>
-
-              <label className="text-sm text-muted-foreground">
-                Amount (SOL)
-                <input
-                  value={depositAmount}
-                  onChange={(e) => setDepositAmount(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
-                  inputMode="decimal"
+          {outcomes.length === 0 ? (
+            <div className="rounded-2xl border border-border/40 bg-card/30 p-12 text-center">
+              <h3 className="text-lg font-semibold">No outcomes yet</h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Outcomes appear once the KOL lineup for this round is set.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {sortedOutcomes.map((o) => (
+                <OutcomeCard
+                  key={o.outcome_id}
+                  outcome={o}
+                  collateralMint={round.collateral_mint}
+                  bettingClosed={bettingClosed}
+                  available={available}
+                  rakeBps={rakeBps}
+                  onBetPlaced={onBetPlaced}
                 />
-              </label>
-
-              <Button onClick={depositAndCredit} disabled={depositing || !connected} className="w-full">
-                {depositing ? "Depositing…" : "Deposit + Credit"}
-              </Button>
-            </CardContent>
-          </Card>
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="mt-8">
-          <h2 className="text-lg font-semibold">Outcomes</h2>
-          <div className="mt-3 grid gap-3">
-            {outcomes.map((o) => {
-              const name =
-                typeof o.kols?.display_name === "string" && o.kols.display_name.length > 0
-                  ? o.kols.display_name
-                  : `${o.kol_wallet_address.slice(0, 4)}…${o.kol_wallet_address.slice(-4)}`
+        {/* Sidebar */}
+        <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
+          <PayoutExplainer rakeBps={rakeBps} />
 
-              return (
-                <div key={o.outcome_id} className="rounded-xl border border-border/60 bg-card/50 px-4 py-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="font-semibold truncate">{name}</div>
-                      <div className="text-xs text-muted-foreground truncate">{o.question_text}</div>
-                    </div>
+          {/* Leaders snapshot */}
+          {summary.totalPool > 0 && (
+            <div className="rounded-2xl border border-border/50 bg-card/40 p-5 backdrop-blur-sm">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                <Trophy className="h-4 w-4 text-emerald-400" /> Most-traded markets
+              </h3>
+              <div className="space-y-2.5">
+                {outcomes
+                  .slice()
+                  .sort((a, b) => Number(b.total_pool ?? 0) - Number(a.total_pool ?? 0))
+                  .slice(0, 5)
+                  .map((o) => {
+                    const name =
+                      o.kols?.display_name && o.kols.display_name.length > 0
+                        ? o.kols.display_name
+                        : shortAddress(o.kol_wallet_address)
+                    const pct = impliedYesPct(o.yes_pool, o.no_pool, o.yes_prob)
+                    return (
+                      <div key={o.outcome_id} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="truncate font-medium">{name}</span>
+                        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className="tabular-nums">{formatCompact(o.total_pool ?? 0)}</span>
+                          <span className={`tabular-nums font-semibold ${pct >= 50 ? "text-emerald-400" : "text-red-400"}`}>
+                            {pct}%
+                          </span>
+                        </span>
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+          )}
 
-                    <Link
-                      href={`/pm/outcomes/${encodeURIComponent(o.outcome_id)}`}
-                      className="h-9 rounded-md bg-foreground px-3 text-sm font-medium text-background hover:opacity-90 inline-flex items-center"
-                    >
-                      Trade
-                    </Link>
-                  </div>
-                </div>
-              )
-            })}
+          {/* Round meta */}
+          <div className="rounded-2xl border border-border/50 bg-card/40 p-5 text-xs text-muted-foreground backdrop-blur-sm">
+            <h3 className="mb-3 text-sm font-semibold text-foreground">Round details</h3>
+            <dl className="space-y-2">
+              <MetaRow label="Opens" value={new Date(round.start_ts).toLocaleString()} />
+              <MetaRow label="Locks" value={new Date(round.lock_ts).toLocaleString()} />
+              <MetaRow label="Settles" value={new Date(round.settle_ts).toLocaleString()} />
+              <MetaRow label="Collateral" value={currency} />
+              <MetaRow label="Round ID" value={shortAddress(round.round_id)} mono />
+            </dl>
           </div>
-        </div>
-      </main>
+        </aside>
+      </div>
+    </PmShell>
+  )
+}
+
+function BackLink() {
+  return (
+    <Link href="/pm" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <ArrowLeft className="h-4 w-4" /> Back to markets
+    </Link>
+  )
+}
+
+function HeroStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="bg-card/40 px-5 py-4">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+        <span className="text-emerald-400">{icon}</span>
+        {label}
+      </div>
+      <div className="mt-1 text-base font-bold tabular-nums">{value}</div>
+    </div>
+  )
+}
+
+function MetaRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt>{label}</dt>
+      <dd className={`text-foreground ${mono ? "font-mono" : ""}`}>{value}</dd>
     </div>
   )
 }

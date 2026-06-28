@@ -4,6 +4,7 @@ import { enforceMaxBodyBytes, rateLimit, requireBearerIfConfigured } from "@/lib
 import { isEmergencyHaltActive } from "@/lib/escrow/security"
 import { withRpcFallback } from "@/lib/solana/rpc"
 import { logEscrowOperation } from "@/lib/escrow/security"
+import { isUsdcMint, getUsdcMint, buildUsdcTransfer, getUsdcAtaBalanceHuman } from "@/lib/solana/spl"
 
 export const runtime = "nodejs"
 
@@ -128,6 +129,74 @@ async function sendSol(args: { fromKeypair: any; toAddress: string; lamports: nu
   }, { maxRetries: 3, retryDelayMs: 1000 })
 }
 
+// Build the list of escrow keypairs (parsed once) honoring PM_ESCROW_WALLET_ADDRESS.
+async function getEscrowKeypairs(): Promise<Array<{ address: string; keypair: any }>> {
+  const { Keypair, PublicKey } = await import("@solana/web3.js")
+
+  const requested = getPmCustodyEscrowAddress()
+  const all = getEscrowWalletConfigs()
+    .filter((c) => typeof c.address === "string" && c.address.trim().length > 0)
+    .filter((c) => typeof c.secret === "string" && c.secret.trim().length > 0)
+
+  const candidates = requested ? all.filter((c) => c.address === requested) : all
+  if (candidates.length === 0) throw new Error(requested ? "PM_ESCROW_SECRET_MISSING" : "ESCROW_SECRET_MISSING")
+
+  return candidates.map((c) => {
+    new PublicKey(c.address)
+    let secret: Uint8Array
+    try {
+      secret = parseSecretKey(String(c.secret))
+    } catch (e: any) {
+      const msg = e?.message ?? String(e)
+      if (msg === "SECRET_KEY_LENGTH_INVALID") throw new Error("ESCROW_SECRET_KEY_INVALID_LENGTH")
+      throw new Error("ESCROW_SECRET_KEY_INVALID_FORMAT")
+    }
+    return { address: c.address, keypair: Keypair.fromSecretKey(secret) }
+  })
+}
+
+// Pick an escrow keypair whose USDC ATA covers `amountHuman` AND that holds a
+// little SOL to pay tx fees / a possible destination-ATA rent. Throws (no
+// insolvent fallback) if none qualifies.
+async function pickKeypairForUsdc(amountHuman: number, mint: string): Promise<{ address: string; keypair: any }> {
+  const { PublicKey } = await import("@solana/web3.js")
+  const parsed = await getEscrowKeypairs()
+  // Enough SOL to cover signature fee + (worst case) ATA creation rent (~0.00204 SOL).
+  const minLamportsForFees = 2_500_000
+
+  return withRpcFallback(async (connection) => {
+    for (const p of parsed) {
+      const bal = await getUsdcAtaBalanceHuman({ connection, owner: p.address, mint })
+      if (bal + 1e-9 < amountHuman) continue
+      const sol = await connection.getBalance(new PublicKey(p.address), "confirmed")
+      if (typeof sol !== "number" || !Number.isFinite(sol) || sol < minLamportsForFees) continue
+      return p
+    }
+    throw new Error("ESCROW_USDC_INSUFFICIENT")
+  }, { maxRetries: 2, retryDelayMs: 500 })
+}
+
+async function sendUsdc(args: { fromKeypair: any; toOwner: string; amountHuman: number; mint: string }): Promise<string> {
+  return withRpcFallback(async (connection) => {
+    // buildUsdcTransfer sets feePayer + a fresh recentBlockhash and signs the tx.
+    const tx = await buildUsdcTransfer({
+      connection,
+      fromOwnerKeypair: args.fromKeypair,
+      toOwner: args.toOwner,
+      amountHuman: args.amountHuman,
+      mint: args.mint,
+    })
+    const blockhash = tx.recentBlockhash as string
+    // Bound the confirmation window using the current block height + the standard
+    // 150-slot validity, consistent with the blockhash baked into the tx.
+    const currentHeight = await connection.getBlockHeight("confirmed")
+    const lastValidBlockHeight = currentHeight + 150
+    const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 })
+    await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed")
+    return sig
+  }, { maxRetries: 3, retryDelayMs: 1000 })
+}
+
 export async function POST(request: NextRequest) {
   const limited = rateLimit({ request, key: "admin:pm:withdrawals:send", limit: 60, windowMs: 60_000 })
   if (limited) return limited
@@ -166,12 +235,58 @@ export async function POST(request: NextRequest) {
 
     const toAddress = String(begin?.destination_pubkey ?? "")
     const amount = Number(begin?.amount)
+    const mint = String(begin?.mint ?? "SOL").trim() || "SOL"
+    const isUsdc = isUsdcMint(mint)
+    const isSol = mint === "SOL"
 
     if (!toAddress) return NextResponse.json({ error: "Missing destination_pubkey" }, { status: 500 })
     if (!Number.isFinite(amount) || amount <= 0) return NextResponse.json({ error: "Invalid amount" }, { status: 500 })
+    if (!isSol && !isUsdc) {
+      const failMsg = "UNSUPPORTED_MINT"
+      await supabase.rpc("pm_fail_withdrawal", {
+        p_withdrawal_id: withdrawal_id,
+        p_processing_nonce: processing_nonce,
+        p_error: failMsg,
+      })
+      return NextResponse.json({ ok: false, error: failMsg }, { status: 400 })
+    }
 
     try {
       const lamports = Math.floor(amount * 1e9)
+
+      // USDC payouts use the SPL token program with the escrow keypair; the
+      // squads custody flow only has a SOL proposal builder, so USDC cannot be
+      // routed through it.
+      if (isUsdc && custody === "squads") {
+        throw new Error("USDC_SQUADS_UNSUPPORTED")
+      }
+
+      if (isUsdc) {
+        const usdcMint = getUsdcMint()
+        const { address: escrowAddress, keypair } = await pickKeypairForUsdc(amount, usdcMint)
+        const sig = await sendUsdc({ fromKeypair: keypair, toOwner: toAddress, amountHuman: amount, mint: usdcMint })
+
+        await logEscrowOperation({
+          operation: "payout",
+          escrow_address: escrowAddress,
+          amount_sol: amount,
+          signature: sig,
+          from_wallet: keypair.publicKey?.toBase58?.() ?? undefined,
+          to_wallet: toAddress,
+        })
+
+        const { error: markErr } = await supabase.rpc("pm_mark_withdrawal_sent", {
+          p_withdrawal_id: withdrawal_id,
+          p_processing_nonce: processing_nonce,
+          p_tx_sig: sig,
+        })
+
+        if (markErr) {
+          return NextResponse.json({ ok: false, error: markErr.message, tx_sig: sig }, { status: 500 })
+        }
+
+        return NextResponse.json({ ok: true, withdrawal_id, status: "SENT", custody_mode: "single", mint, tx_sig: sig })
+      }
 
       if (custody === "squads") {
         const { createSquadsSolTransferProposal } = await import("@/lib/solana/squads")

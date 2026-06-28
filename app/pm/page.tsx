@@ -1,29 +1,44 @@
 "use client"
 
-import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
-import { Header } from "@/components/header"
-import { AsciiShaderBackground } from "@/components/ascii-shader-background"
-import { TrendingUp, Clock, Users, Plus, ChevronRight, Flame, Trophy, Calendar, Search, X } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
+import { useWalletModal } from "@solana/wallet-adapter-react-ui"
+import { toast } from "sonner"
+import {
+  TrendingUp,
+  Clock,
+  Users,
+  Plus,
+  ChevronRight,
+  Flame,
+  Trophy,
+  Calendar,
+  Search,
+  X,
+  ArrowUpDown,
+  BarChart3,
+  Wallet,
+  Trophy as TrophyIcon,
+} from "lucide-react"
+import Link from "next/link"
+import { PmShell } from "@/components/pm/pm-shell"
+import { MarketCard, MarketCardSkeleton } from "@/components/pm/market-card"
+import { usePmRounds } from "@/components/pm/use-pm-rounds"
+import { PoolBar } from "@/components/pm/pool-bar"
+import {
+  base64FromBytes,
+  buildPmMessage,
+  formatCompact,
+  makeNonce,
+  mintLabel,
+  isPastLock,
+} from "@/components/pm/pm-client"
+import type { MarketType, RoundSummary } from "@/components/pm/types"
 
-type MarketType = "DAILY" | "WEEKLY" | "MONTHLY"
 type ViewTab = "markets" | "community"
 type Category = "all" | "crypto" | "sports" | "politics" | "entertainment" | "other"
-
-type RoundRow = {
-  round_id: string
-  market_type: MarketType
-  start_ts: string
-  lock_ts: string
-  settle_ts: string
-  status: string
-  collateral_mint: string
-  escrow_wallet_pubkey: string
-  rake_bps: number
-  snapshot_hash: string | null
-}
+type SortKey = "volume" | "ending" | "bettors" | "newest"
+type TypeFilter = "ALL" | MarketType
 
 type UserPrediction = {
   prediction_id: string
@@ -38,41 +53,16 @@ type UserPrediction = {
   created_at: string
 }
 
-function base64FromBytes(bytes: Uint8Array): string {
-  let binary = ""
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!)
-  return btoa(binary)
-}
-
-function makeNonce(): string {
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`
-}
-
-function buildPmMessage(title: string, fields: Record<string, string>): string {
-  const lines = [title]
-  for (const [k, v] of Object.entries(fields)) lines.push(`${k}=${v}`)
-  return lines.join("\n")
-}
-
 function formatTimeLeft(endDate: string): string {
   const end = new Date(endDate).getTime()
   const now = Date.now()
   const diff = end - now
-
   if (diff <= 0) return "Ended"
-
   const days = Math.floor(diff / (1000 * 60 * 60 * 24))
   const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-
   if (days > 0) return `${days}d ${hours}h left`
   if (hours > 0) return `${hours}h left`
   return "< 1h left"
-}
-
-function formatVolume(vol: number): string {
-  if (!Number.isFinite(vol) || vol === 0) return "0 SOL"
-  if (vol >= 1000) return `${(vol / 1000).toFixed(1)}K SOL`
-  return `${vol.toFixed(2)} SOL`
 }
 
 function getYesPercent(yes: number, no: number): number {
@@ -90,118 +80,95 @@ const CATEGORIES: { value: Category; label: string; icon: React.ReactNode }[] = 
   { value: "other", label: "Other", icon: <Clock className="h-4 w-4" /> },
 ]
 
+const SORTS: { value: SortKey; label: string }[] = [
+  { value: "volume", label: "Top volume" },
+  { value: "ending", label: "Ending soon" },
+  { value: "bettors", label: "Most bettors" },
+  { value: "newest", label: "Newest" },
+]
+
 export default function PredictionMarketsPage() {
-  const { toast } = useToast()
-  const { publicKey, connected, connect, connecting, signMessage } = useWallet()
+  const { publicKey, connected, signMessage } = useWallet()
+  const { setVisible } = useWalletModal()
 
   const [viewTab, setViewTab] = useState<ViewTab>("markets")
-  const [marketType, setMarketType] = useState<MarketType>("DAILY")
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL")
+  const [sortKey, setSortKey] = useState<SortKey>("volume")
   const [category, setCategory] = useState<Category>("all")
   const [searchQuery, setSearchQuery] = useState("")
 
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [rounds, setRounds] = useState<RoundRow[]>([])
+  // Seed the search from a ?q= param (e.g. "Find markets for this KOL" links).
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const q = new URLSearchParams(window.location.search).get("q")
+    if (q) setSearchQuery(q)
+  }, [])
+
+  // KOL parimutuel rounds (hydrated with pool aggregates).
+  const { rounds, loading, hydrating, error, reload } = usePmRounds("OPEN")
+
+  // Community predictions.
+  const [predLoading, setPredLoading] = useState(false)
+  const [predError, setPredError] = useState<string | null>(null)
   const [predictions, setPredictions] = useState<UserPrediction[]>([])
 
-  // Create prediction modal
+  // Create prediction modal.
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newQuestion, setNewQuestion] = useState("")
   const [newCategory, setNewCategory] = useState<Category>("crypto")
   const [newEndDate, setNewEndDate] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
-  // Load KOL rounds
-  useEffect(() => {
-    if (viewTab !== "markets") return
-    let mounted = true
-
-    async function run() {
-      setLoading(true)
-      setError(null)
-      try {
-        const res = await fetch(`/api/pm/rounds?market_type=${encodeURIComponent(marketType)}&limit=50`)
-        const json = (await res.json().catch(() => null)) as any
-        if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load rounds")
-        if (!mounted) return
-        setRounds(Array.isArray(json?.rounds) ? (json.rounds as RoundRow[]) : [])
-        setLoading(false)
-      } catch (e: any) {
-        if (!mounted) return
-        setError(e?.message ?? String(e))
-        setRounds([])
-        setLoading(false)
-      }
-    }
-
-    run()
-    return () => { mounted = false }
-  }, [marketType, viewTab])
-
-  // Load community predictions
   useEffect(() => {
     if (viewTab !== "community") return
     let mounted = true
-
     async function run() {
-      setLoading(true)
-      setError(null)
+      setPredLoading(true)
+      setPredError(null)
       try {
         const params = new URLSearchParams()
         if (category !== "all") params.set("category", category)
         params.set("status", "approved")
         params.set("limit", "100")
-
         const res = await fetch(`/api/pm/predictions?${params.toString()}`)
         const json = (await res.json().catch(() => null)) as any
         if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load predictions")
         if (!mounted) return
         setPredictions(Array.isArray(json?.predictions) ? (json.predictions as UserPrediction[]) : [])
-        setLoading(false)
       } catch (e: any) {
         if (!mounted) return
-        setError(e?.message ?? String(e))
+        setPredError(e?.message ?? String(e))
         setPredictions([])
-        setLoading(false)
+      } finally {
+        if (mounted) setPredLoading(false)
       }
     }
-
     run()
-    return () => { mounted = false }
+    return () => {
+      mounted = false
+    }
   }, [category, viewTab])
 
   async function handleCreatePrediction() {
-    if (!publicKey) {
-      toast({ title: "Wallet not connected", description: "Connect your wallet to create a prediction", variant: "destructive" })
+    if (!publicKey || !connected) {
+      setVisible(true)
+      toast.info("Connect your wallet", { description: "Connect a wallet to create a prediction." })
       return
     }
-
     if (!signMessage) {
-      toast({ title: "Wallet unsupported", description: "Your wallet doesn't support message signing", variant: "destructive" })
+      toast.error("Wallet unsupported", { description: "Your wallet doesn't support message signing." })
       return
     }
-
-    if (!connected && !connecting) {
-      try {
-        await connect()
-      } catch {
-        toast({ title: "Connection failed", description: "Please reconnect your wallet", variant: "destructive" })
-        return
-      }
-    }
-
     if (!newQuestion.trim() || newQuestion.trim().length < 10) {
-      toast({ title: "Invalid question", description: "Question must be at least 10 characters", variant: "destructive" })
+      toast.error("Invalid question", { description: "Question must be at least 10 characters." })
       return
     }
-
     if (!newEndDate) {
-      toast({ title: "Missing end date", description: "Please select when this prediction ends", variant: "destructive" })
+      toast.error("Missing end date", { description: "Please select when this prediction ends." })
       return
     }
 
     setSubmitting(true)
-
     try {
       const wallet_address = publicKey.toBase58()
       const issued_at = new Date().toISOString()
@@ -236,402 +203,340 @@ export default function PredictionMarketsPage() {
       })
 
       const json = (await res.json().catch(() => null)) as any
-      if (!res.ok || !json?.ok) {
-        throw new Error(json?.error ?? "Failed to create prediction")
-      }
+      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to create prediction")
 
-      toast({ title: "Prediction submitted!", description: "Your prediction is pending review" })
+      toast.success("Prediction submitted!", { description: "Your prediction is pending review." })
       setShowCreateModal(false)
       setNewQuestion("")
       setNewCategory("crypto")
       setNewEndDate("")
     } catch (e: any) {
-      toast({ title: "Failed to create", description: e?.message ?? String(e), variant: "destructive" })
+      toast.error("Failed to create", { description: e?.message ?? String(e) })
     } finally {
       setSubmitting(false)
     }
   }
+
+  // Filter + sort the hydrated rounds.
+  const visibleRounds = useMemo(() => {
+    let list = rounds.slice()
+    if (typeFilter !== "ALL") list = list.filter((r) => r.market_type === typeFilter)
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase()
+      list = list.filter((r) => {
+        if (r.round_id.toLowerCase().includes(q)) return true
+        return r.outcomes.some(
+          (o) =>
+            (o.kols?.display_name ?? "").toLowerCase().includes(q) ||
+            (o.kols?.twitter_handle ?? "").toLowerCase().includes(q) ||
+            o.kol_wallet_address.toLowerCase().includes(q) ||
+            (o.question_text ?? "").toLowerCase().includes(q),
+        )
+      })
+    }
+    list.sort((a, b) => {
+      switch (sortKey) {
+        case "volume":
+          return b.totalPool - a.totalPool
+        case "bettors":
+          return b.bettorCount - a.bettorCount
+        case "ending":
+          return new Date(a.lock_ts).getTime() - new Date(b.lock_ts).getTime()
+        case "newest":
+          return new Date(b.start_ts).getTime() - new Date(a.start_ts).getTime()
+        default:
+          return 0
+      }
+    })
+    return list
+  }, [rounds, typeFilter, sortKey, searchQuery])
+
+  // Aggregate market stats for the hero strip.
+  const stats = useMemo(() => {
+    const open = rounds.filter((r) => r.status === "OPEN" && !isPastLock(r.lock_ts))
+    const totalVolume = rounds.reduce((s, r) => s + r.totalPool, 0)
+    const totalBettors = rounds.reduce((s, r) => s + r.bettorCount, 0)
+    const currency = rounds[0] ? mintLabel(rounds[0].collateral_mint) : "SOL"
+    return { openCount: open.length, totalVolume, totalBettors, currency }
+  }, [rounds])
 
   const filteredPredictions = predictions.filter((p) => {
     if (!searchQuery.trim()) return true
     return p.question.toLowerCase().includes(searchQuery.toLowerCase())
   })
 
-  const filteredRounds = rounds.filter((r) => {
-    if (!searchQuery.trim()) return true
-    return r.round_id.toLowerCase().includes(searchQuery.toLowerCase())
-  })
-
   return (
-    <div className="relative min-h-screen bg-black">
-      <AsciiShaderBackground mode="plasma" opacity={0.12} color="emerald" />
-      
-      <div className="relative z-10">
-        <Header />
-
-        <main className="mx-auto max-w-7xl px-4 py-8">
-        {/* Hero Section */}
-        <div className="mb-10">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
-                Prediction Markets
-              </h1>
-              <p className="mt-2 text-lg text-muted-foreground max-w-xl">
-                Trade on the future. Bet on KOL performance or create your own predictions.
-              </p>
-            </div>
-
+    <PmShell>
+      {/* Hero */}
+      <div className="mb-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-4xl font-bold tracking-tight text-transparent">
+              Prediction Markets
+            </h1>
+            <p className="mt-2 max-w-xl text-lg text-muted-foreground">
+              Parimutuel pools on the best Solana KOLs. Stake YES or NO — winners split both pools.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/leaderboard"
+              className="inline-flex items-center gap-2 rounded-xl border border-border/50 bg-card/40 px-4 py-3 text-sm font-medium text-muted-foreground backdrop-blur-sm transition-colors hover:border-emerald-500/30 hover:text-foreground"
+            >
+              <TrophyIcon className="h-4 w-4" /> Leaderboard
+            </Link>
+            <Link
+              href="/pm/me"
+              className="inline-flex items-center gap-2 rounded-xl border border-border/50 bg-card/40 px-4 py-3 text-sm font-medium text-muted-foreground backdrop-blur-sm transition-colors hover:border-emerald-500/30 hover:text-foreground"
+            >
+              <Wallet className="h-4 w-4" /> Portfolio
+            </Link>
             <button
               type="button"
               onClick={() => setShowCreateModal(true)}
-              className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:shadow-xl hover:shadow-emerald-500/30 hover:scale-[1.02]"
+              className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:scale-[1.02]"
             >
-              <Plus className="h-5 w-5" />
-              Create Prediction
-              <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+              <Plus className="h-5 w-5" /> Create
             </button>
           </div>
         </div>
 
-        {/* Stats Bar */}
-        <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-          <div className="rounded-2xl border border-border/40 bg-card/30 backdrop-blur-sm p-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-emerald-500/10 p-2.5">
-                <TrendingUp className="h-5 w-5 text-emerald-500" />
-              </div>
-              <div>
-                <div className="text-2xl font-bold">{rounds.length + predictions.length}</div>
-                <div className="text-xs text-muted-foreground">Active Markets</div>
-              </div>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-border/40 bg-card/30 backdrop-blur-sm p-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-blue-500/10 p-2.5">
-                <Users className="h-5 w-5 text-blue-500" />
-              </div>
-              <div>
-                <div className="text-2xl font-bold">--</div>
-                <div className="text-xs text-muted-foreground">Traders</div>
-              </div>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-border/40 bg-card/30 backdrop-blur-sm p-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-purple-500/10 p-2.5">
-                <Flame className="h-5 w-5 text-purple-500" />
-              </div>
-              <div>
-                <div className="text-2xl font-bold">--</div>
-                <div className="text-xs text-muted-foreground">24h Volume</div>
-              </div>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-border/40 bg-card/30 backdrop-blur-sm p-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-amber-500/10 p-2.5">
-                <Trophy className="h-5 w-5 text-amber-500" />
-              </div>
-              <div>
-                <div className="text-2xl font-bold">--</div>
-                <div className="text-xs text-muted-foreground">Resolved</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Main Tabs */}
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="inline-flex rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm p-1">
-            <button
-              type="button"
-              onClick={() => setViewTab("markets")}
-              className={`rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${
-                viewTab === "markets"
-                  ? "bg-foreground text-background shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              KOL Markets
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewTab("community")}
-              className={`rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${
-                viewTab === "community"
-                  ? "bg-foreground text-background shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Community
-            </button>
-          </div>
-
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search markets..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-10 w-full sm:w-72 rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm pl-10 pr-4 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50"
+        {/* Stats strip */}
+        {viewTab === "markets" && (
+          <div className="mt-6 grid grid-cols-3 gap-3">
+            <StatStrip
+              icon={<Flame className="h-4 w-4 text-emerald-400" />}
+              label="Open markets"
+              value={loading ? "—" : String(stats.openCount)}
+            />
+            <StatStrip
+              icon={<BarChart3 className="h-4 w-4 text-emerald-400" />}
+              label="Total volume"
+              value={loading ? "—" : `${formatCompact(stats.totalVolume)} ${stats.currency}`}
+            />
+            <StatStrip
+              icon={<Users className="h-4 w-4 text-emerald-400" />}
+              label="Total bettors"
+              value={loading ? "—" : String(stats.totalBettors)}
             />
           </div>
+        )}
+      </div>
+
+      {/* Tabs + search */}
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="inline-flex rounded-xl border border-border/40 bg-card/30 p-1 backdrop-blur-sm">
+          {(["markets", "community"] as ViewTab[]).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setViewTab(t)}
+              className={`rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${
+                viewTab === t ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t === "markets" ? "KOL Markets" : "Community"}
+            </button>
+          ))}
         </div>
 
-        {/* Sub-filters */}
-        {viewTab === "markets" ? (
-          <div className="mb-6 flex flex-wrap gap-2">
-            {(["DAILY", "WEEKLY", "MONTHLY"] as MarketType[]).map((mt) => (
-              <button
-                key={mt}
-                type="button"
-                onClick={() => setMarketType(mt)}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-                  marketType === mt
-                    ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/30"
-                    : "border border-border/40 text-muted-foreground hover:text-foreground hover:border-border"
-                }`}
-              >
-                {mt.charAt(0) + mt.slice(1).toLowerCase()}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="mb-6 flex flex-wrap gap-2">
-            {CATEGORIES.map((cat) => (
-              <button
-                key={cat.value}
-                type="button"
-                onClick={() => setCategory(cat.value)}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-                  category === cat.value
-                    ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/30"
-                    : "border border-border/40 text-muted-foreground hover:text-foreground hover:border-border"
-                }`}
-              >
-                {cat.icon}
-                {cat.label}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder={viewTab === "markets" ? "Search KOLs, markets…" : "Search predictions…"}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-10 w-full rounded-xl border border-border/40 bg-card/30 pl-10 pr-4 text-sm backdrop-blur-sm placeholder:text-muted-foreground focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 sm:w-72"
+          />
+        </div>
+      </div>
 
-        {/* Content */}
-        {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+      {/* Sub-filters */}
+      {viewTab === "markets" ? (
+        <div className="mb-6 flex flex-wrap items-center gap-2">
+          {(["ALL", "DAILY", "WEEKLY", "MONTHLY"] as TypeFilter[]).map((mt) => (
+            <button
+              key={mt}
+              type="button"
+              onClick={() => setTypeFilter(mt)}
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                typeFilter === mt
+                  ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  : "border border-border/40 text-muted-foreground hover:border-border hover:text-foreground"
+              }`}
+            >
+              {mt === "ALL" ? "All types" : mt.charAt(0) + mt.slice(1).toLowerCase()}
+            </button>
+          ))}
+
+          <div className="mx-1 h-6 w-px bg-border/40" />
+
+          {/* Sort */}
+          <div className="relative inline-flex items-center">
+            <ArrowUpDown className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-muted-foreground" />
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              aria-label="Sort markets"
+              className="h-9 cursor-pointer appearance-none rounded-lg border border-border/40 bg-card/30 pl-8 pr-8 text-sm font-medium text-foreground backdrop-blur-sm focus:border-emerald-500/50 focus:outline-none"
+            >
+              {SORTS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <ChevronRight className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 rotate-90 text-muted-foreground" />
+          </div>
+
+          {hydrating && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+              Updating odds…
+            </span>
+          )}
+        </div>
+      ) : (
+        <div className="mb-6 flex flex-wrap gap-2">
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat.value}
+              type="button"
+              onClick={() => setCategory(cat.value)}
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                category === cat.value
+                  ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  : "border border-border/40 text-muted-foreground hover:border-border hover:text-foreground"
+              }`}
+            >
+              {cat.icon}
+              {cat.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Content */}
+      {viewTab === "markets" ? (
+        loading ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <MarketCardSkeleton key={i} />
+            ))}
           </div>
         ) : error ? (
-          <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center">
-            <p className="text-red-400">{error}</p>
-          </div>
-        ) : viewTab === "markets" ? (
-          filteredRounds.length === 0 ? (
-            <div className="rounded-2xl border border-border/40 bg-card/30 backdrop-blur-sm p-12 text-center">
-              <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-muted/50 flex items-center justify-center">
-                <TrendingUp className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <h3 className="text-lg font-semibold">No {marketType.toLowerCase()} markets yet</h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Markets are created automatically when KOL rounds are bootstrapped.
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {filteredRounds.map((r) => {
-                const isOpen = r.status === "OPEN"
-                const lockDate = new Date(r.lock_ts)
-                
-                return (
-                  <Link
-                    key={r.round_id}
-                    href={`/pm/rounds/${encodeURIComponent(r.round_id)}`}
-                    className="group rounded-2xl border border-border/40 bg-card/30 backdrop-blur-sm p-5 transition-all hover:border-emerald-500/30 hover:bg-card/50 hover:shadow-lg hover:shadow-emerald-500/5"
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                            r.market_type === "DAILY" ? "bg-blue-500/10 text-blue-400" :
-                            r.market_type === "WEEKLY" ? "bg-purple-500/10 text-purple-400" :
-                            "bg-amber-500/10 text-amber-400"
-                          }`}>
-                            {r.market_type}
-                          </span>
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                            isOpen ? "bg-emerald-500/10 text-emerald-400" : "bg-muted text-muted-foreground"
-                          }`}>
-                            {r.status}
-                          </span>
-                        </div>
-                        <h3 className="font-semibold text-sm leading-tight line-clamp-2 group-hover:text-emerald-400 transition-colors">
-                          KOL Performance Round
-                        </h3>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Locks</span>
-                        <span className="font-medium">{lockDate.toLocaleDateString()}</span>
-                      </div>
-                      
-                      <div className="h-2 rounded-full bg-muted/50 overflow-hidden">
-                        <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500" />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Clock className="h-3.5 w-3.5" />
-                          {formatTimeLeft(r.lock_ts)}
-                        </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-emerald-400 transition-colors" />
-                      </div>
-                    </div>
-                  </Link>
-                )
-              })}
-            </div>
-          )
+          <ErrorState message={error} onRetry={reload} />
+        ) : visibleRounds.length === 0 ? (
+          <EmptyState
+            title={searchQuery ? "No markets match your search" : "No open markets right now"}
+            body={
+              searchQuery
+                ? "Try a different KOL name or clear the search."
+                : "Rounds open automatically when KOL lineups are bootstrapped. Check back soon."
+            }
+          />
         ) : (
-          filteredPredictions.length === 0 ? (
-            <div className="rounded-2xl border border-border/40 bg-card/30 backdrop-blur-sm p-12 text-center">
-              <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-muted/50 flex items-center justify-center">
-                <Plus className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <h3 className="text-lg font-semibold">No community predictions yet</h3>
-              <p className="mt-2 text-sm text-muted-foreground mb-4">
-                Be the first to create a prediction for the community!
-              </p>
-              <button
-                type="button"
-                onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-600 transition-colors"
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {visibleRounds.map((r) => (
+              <MarketCard key={r.round_id} round={r} />
+            ))}
+          </div>
+        )
+      ) : predLoading ? (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <MarketCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : predError ? (
+        <ErrorState message={predError} />
+      ) : filteredPredictions.length === 0 ? (
+        <EmptyState
+          title="No community predictions yet"
+          body="Be the first to create a prediction for the community."
+          action={
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-600"
+            >
+              <Plus className="h-4 w-4" /> Create Prediction
+            </button>
+          }
+        />
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {filteredPredictions.map((p) => {
+            const yesPercent = getYesPercent(p.yes_pool, p.no_pool)
+            return (
+              <div
+                key={p.prediction_id}
+                className="group rounded-2xl border border-border/40 bg-card/40 p-5 backdrop-blur-sm transition-all hover:border-emerald-500/30 hover:bg-card/60"
               >
-                <Plus className="h-4 w-4" />
-                Create Prediction
-              </button>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {filteredPredictions.map((p) => {
-                const yesPercent = getYesPercent(p.yes_pool, p.no_pool)
-                
-                return (
-                  <div
-                    key={p.prediction_id}
-                    className="group rounded-2xl border border-border/40 bg-card/30 backdrop-blur-sm p-5 transition-all hover:border-emerald-500/30 hover:bg-card/50"
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium capitalize">
-                            {p.category}
-                          </span>
-                        </div>
-                        <h3 className="font-semibold text-sm leading-tight line-clamp-3">
-                          {p.question}
-                        </h3>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-emerald-400 font-medium">Yes {yesPercent}%</span>
-                        <span className="text-red-400 font-medium">No {100 - yesPercent}%</span>
-                      </div>
-                      
-                      <div className="h-2 rounded-full bg-red-500/20 overflow-hidden">
-                        <div 
-                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all"
-                          style={{ width: `${yesPercent}%` }}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1.5">
-                          <Clock className="h-3.5 w-3.5" />
-                          {formatTimeLeft(p.end_date)}
-                        </div>
-                        <div>{formatVolume(p.total_volume)}</div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 pt-2">
-                        <button
-                          type="button"
-                          className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 py-2 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 transition-colors"
-                        >
-                          Buy Yes
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-lg bg-red-500/10 border border-red-500/30 py-2 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-colors"
-                        >
-                          Buy No
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )
-        )}
-      </main>
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium capitalize">
+                    {p.category}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    <Clock className="h-3 w-3" /> {formatTimeLeft(p.end_date)}
+                  </span>
+                </div>
+                <h3 className="mb-3 line-clamp-3 text-sm font-semibold leading-tight">{p.question}</h3>
+                <PoolBar yesPool={p.yes_pool} noPool={p.no_pool} />
+                <div className="mt-3 flex items-center justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
+                  <span>{getYesPercent(p.yes_pool, p.no_pool)}% implied YES</span>
+                  <span className="tabular-nums">{formatCompact(p.total_volume)} vol</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {/* Create Prediction Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div 
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowCreateModal(false)}
-          />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowCreateModal(false)} />
           <div className="relative w-full max-w-lg rounded-2xl border border-border/60 bg-card p-6 shadow-2xl">
             <button
               type="button"
               onClick={() => setShowCreateModal(false)}
-              className="absolute right-4 top-4 rounded-lg p-1 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              aria-label="Close"
+              className="absolute right-4 top-4 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
             >
               <X className="h-5 w-5" />
             </button>
 
             <div className="mb-6">
               <h2 className="text-xl font-bold">Create a Prediction</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Submit a yes/no question for the community to bet on.
-              </p>
+              <p className="mt-1 text-sm text-muted-foreground">Submit a yes/no question for the community to bet on.</p>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Question</label>
+                <label className="mb-2 block text-sm font-medium">Question</label>
                 <textarea
                   value={newQuestion}
                   onChange={(e) => setNewQuestion(e.target.value)}
                   placeholder="Will Bitcoin reach $100,000 by end of 2025?"
                   rows={3}
-                  className="w-full rounded-xl border border-border/60 bg-background/50 px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 resize-none"
+                  className="w-full resize-none rounded-xl border border-border/60 bg-background/50 px-4 py-3 text-sm placeholder:text-muted-foreground focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                 />
-                <div className="mt-1 text-xs text-muted-foreground text-right">
-                  {newQuestion.length}/500
-                </div>
+                <div className="mt-1 text-right text-xs text-muted-foreground">{newQuestion.length}/500</div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Category</label>
+                <label className="mb-2 block text-sm font-medium">Category</label>
                 <div className="flex flex-wrap gap-2">
-                  {CATEGORIES.filter(c => c.value !== "all").map((cat) => (
+                  {CATEGORIES.filter((c) => c.value !== "all").map((cat) => (
                     <button
                       key={cat.value}
                       type="button"
                       onClick={() => setNewCategory(cat.value as Category)}
                       className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${
                         newCategory === cat.value
-                          ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/30"
+                          ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                           : "border border-border/40 text-muted-foreground hover:text-foreground"
                       }`}
                     >
@@ -643,14 +548,14 @@ export default function PredictionMarketsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Resolution Date</label>
+                <label className="mb-2 block text-sm font-medium">Resolution Date</label>
                 <input
                   type="datetime-local"
                   value={newEndDate}
                   onChange={(e) => setNewEndDate(e.target.value)}
                   min={new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16)}
                   max={new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)}
-                  className="w-full rounded-xl border border-border/60 bg-background/50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50"
+                  className="w-full rounded-xl border border-border/60 bg-background/50 px-4 py-3 text-sm focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                 />
               </div>
 
@@ -658,32 +563,72 @@ export default function PredictionMarketsPage() {
                 {!connected ? (
                   <button
                     type="button"
-                    onClick={() => connect()}
-                    disabled={connecting}
-                    className="w-full rounded-xl bg-foreground py-3 text-sm font-semibold text-background hover:opacity-90 transition-opacity disabled:opacity-50"
+                    onClick={() => setVisible(true)}
+                    className="w-full rounded-xl bg-foreground py-3 text-sm font-semibold text-background transition-opacity hover:opacity-90"
                   >
-                    {connecting ? "Connecting..." : "Connect Wallet to Submit"}
+                    Connect Wallet to Submit
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={handleCreatePrediction}
                     disabled={submitting || !newQuestion.trim() || !newEndDate}
-                    className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 hover:shadow-xl hover:shadow-emerald-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {submitting ? "Submitting..." : "Submit Prediction"}
+                    {submitting ? "Submitting…" : "Submit Prediction"}
                   </button>
                 )}
               </div>
 
-              <p className="text-xs text-muted-foreground text-center">
+              <p className="text-center text-xs text-muted-foreground">
                 Predictions are reviewed before going live. Clear, verifiable questions are more likely to be approved.
               </p>
             </div>
           </div>
         </div>
       )}
+    </PmShell>
+  )
+}
+
+function StatStrip({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-border/40 bg-card/30 px-4 py-3 backdrop-blur-sm">
+      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">{icon}</div>
+      <div className="min-w-0">
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+        <div className="truncate text-lg font-bold tabular-nums">{value}</div>
       </div>
+    </div>
+  )
+}
+
+function EmptyState({ title, body, action }: { title: string; body: string; action?: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-border/40 bg-card/30 p-12 text-center backdrop-blur-sm">
+      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
+        <TrendingUp className="h-6 w-6 text-muted-foreground" />
+      </div>
+      <h3 className="text-lg font-semibold">{title}</h3>
+      <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{body}</p>
+      {action ? <div className="mt-4">{action}</div> : null}
+    </div>
+  )
+}
+
+function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center">
+      <p className="text-red-400">{message}</p>
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-4 rounded-lg border border-border/50 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/40"
+        >
+          Try again
+        </button>
+      ) : null}
     </div>
   )
 }

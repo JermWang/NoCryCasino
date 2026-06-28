@@ -5,6 +5,7 @@ import { isEmergencyHaltActive } from "@/lib/escrow/security"
 import { withRpcFallback } from "@/lib/solana/rpc"
 import { buildPmMessage, requireFreshIssuedAt, requireSignedBody } from "@/lib/pm/signing"
 import { consumePmNonce, isPmNonceRequired } from "@/lib/pm/nonce"
+import { isUsdcMint, getUsdcMint, verifyUsdcDeposit } from "@/lib/solana/spl"
 
 export const runtime = "nodejs"
 
@@ -173,17 +174,51 @@ export async function POST(request: NextRequest) {
 
       allowedEscrows = [escrow_wallet_pubkey]
     }
-    const minLamports = Math.floor(minAmountSol * 1e9)
+    // Resolve the requested collateral mint. 'SOL' is the native sentinel; any
+    // other value must equal the configured USDC mint (env USDC_MINT).
+    const mint = typeof body?.mint === "string" && body.mint.length > 0 ? body.mint.trim() : "SOL"
+    const isSol = mint === "SOL"
+    const isUsdc = isUsdcMint(mint)
+    if (!isSol && !isUsdc) {
+      return NextResponse.json({ error: "Unsupported mint" }, { status: 400 })
+    }
 
-    const verified = await verifySolDeposit({ txSig: tx_sig, fromWallet: wallet_address, allowedEscrows, minLamports })
-    if (!verified.ok) return NextResponse.json({ error: verified.error }, { status: 400 })
+    let creditedAmount: number
 
-    const amountSol = verified.lamports / 1e9
-    const mint = typeof body?.mint === "string" && body.mint.length > 0 ? body.mint : "SOL"
+    if (isUsdc) {
+      // USDC (SPL) deposit: verify a token transfer of USDC_MINT from the user
+      // into the escrow's ATA of >= the requested minimum (human units reuse the
+      // min_amount_sol field, which the signed message already commits to).
+      const usdcMint = getUsdcMint()
+      const verifiedUsdc = await withRpcFallback(async (connection) => {
+        for (const escrowOwner of allowedEscrows) {
+          const r = await verifyUsdcDeposit({
+            connection,
+            txSig: tx_sig,
+            expectedDestOwner: escrowOwner,
+            fromOwner: wallet_address,
+            mint: usdcMint,
+            minAmountHuman: minAmountSol,
+          })
+          if (r) return r
+        }
+        return null
+      })
+
+      if (!verifiedUsdc) return NextResponse.json({ error: "USDC deposit not verified" }, { status: 400 })
+      creditedAmount = verifiedUsdc.amountHuman
+    } else {
+      const minLamports = Math.floor(minAmountSol * 1e9)
+
+      const verified = await verifySolDeposit({ txSig: tx_sig, fromWallet: wallet_address, allowedEscrows, minLamports })
+      if (!verified.ok) return NextResponse.json({ error: verified.error }, { status: 400 })
+
+      creditedAmount = verified.lamports / 1e9
+    }
 
     const { data, error } = await supabase.rpc("pm_credit_deposit", {
       p_user_pubkey: wallet_address,
-      p_amount: amountSol,
+      p_amount: creditedAmount,
       p_mint: mint,
       p_tx_sig: tx_sig,
       p_round_scope: round_scope,
@@ -191,7 +226,7 @@ export async function POST(request: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    return NextResponse.json({ ...data, credited_amount_sol: amountSol })
+    return NextResponse.json({ ...data, credited_amount_sol: creditedAmount, credited_amount: creditedAmount, mint })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? String(e) }, { status: 500 })
   }

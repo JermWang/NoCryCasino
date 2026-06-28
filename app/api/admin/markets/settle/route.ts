@@ -7,6 +7,7 @@ import {
   createLeaderboardSnapshot,
   saveLeaderboardSnapshot,
   getLeaderboardSnapshot,
+  getSolPriceUsd,
   type WindowKey,
   type RankedKol,
 } from "@/lib/analytics/snapshot"
@@ -31,63 +32,6 @@ type MarketRow = {
   closes_at: string
   status: "open" | "closed" | "settled" | "cancelled"
   settlement_nonce: string | null
-}
-
-let solPriceCache: { value: number; ts: number } | null = null
-
-async function getSolPriceUsd(): Promise<number> {
-  const now = Date.now()
-  if (solPriceCache && now - solPriceCache.ts < 60_000) return solPriceCache.value
-
-  try {
-    const timeoutMs = 7_000
-
-    const fetchJson = async (url: string) => {
-      const controller = new AbortController()
-      const t = setTimeout(() => controller.abort(), timeoutMs)
-      try {
-        const res = await fetch(url, {
-          next: { revalidate: 60 },
-          headers: {
-            accept: "application/json",
-            "user-agent": "trade-wars/1.0",
-          },
-          signal: controller.signal,
-        })
-        return { res, json: (await res.json().catch(() => null)) as any }
-      } finally {
-        clearTimeout(t)
-      }
-    }
-
-    // 1) CoinGecko
-    {
-      const { res, json } = await fetchJson(
-        "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd",
-      )
-      const v = Number(json?.solana?.usd)
-      const price = Number.isFinite(v) && v > 0 ? v : 0
-      if (res.ok && price > 0) {
-        solPriceCache = { value: price, ts: now }
-        return price
-      }
-    }
-
-    // 2) Jupiter
-    {
-      const { res, json } = await fetchJson("https://price.jup.ag/v4/price?ids=SOL")
-      const v = Number(json?.data?.SOL?.price)
-      const price = Number.isFinite(v) && v > 0 ? v : 0
-      if (res.ok && price > 0) {
-        solPriceCache = { value: price, ts: now }
-        return price
-      }
-    }
-
-    return solPriceCache?.value ?? 124
-  } catch {
-    return solPriceCache?.value ?? 124
-  }
 }
 
 function generateSettlementNonce(window_key: WindowKey, closes_at: string): string {
@@ -148,7 +92,10 @@ export async function POST(request: NextRequest) {
       byGroup.set(key, arr)
     }
 
-    const solPriceUsd = await getSolPriceUsd()
+    // Live price is ONLY used to pin a freshly-created snapshot. When a saved
+    // snapshot already exists, its pinned sol_price_usd is authoritative and the
+    // live price is ignored (Task 2: pin at lock, reuse at settle).
+    const liveSolPriceForNewSnapshots = await getSolPriceUsd()
     const results: any[] = []
     let totalSettled = 0
 
@@ -162,7 +109,7 @@ export async function POST(request: NextRequest) {
         snapshot = await createLeaderboardSnapshot({
           window_key,
           closes_at,
-          sol_price_usd: solPriceUsd,
+          sol_price_usd: liveSolPriceForNewSnapshots,
           apply_anti_manipulation,
         })
 
@@ -172,6 +119,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Authoritative price for this settlement: the one pinned in the snapshot.
+      const pinnedSolPriceUsd = snapshot.sol_price_usd
       const rankByWallet = new Map(snapshot.rankings.map((r) => [r.wallet_address, r]))
 
       // Generate settlement nonce for idempotency
@@ -193,7 +142,10 @@ export async function POST(request: NextRequest) {
           resolved_outcome: yes ? ("yes" as const) : ("no" as const),
           resolved_rank,
           resolved_profit_sol,
-          resolved_profit_usd: typeof resolved_profit_sol === "number" ? resolved_profit_sol * solPriceUsd : null,
+          resolved_profit_usd:
+            typeof resolved_profit_sol === "number" && pinnedSolPriceUsd > 0
+              ? resolved_profit_sol * pinnedSolPriceUsd
+              : null,
           snapshot_at: snapshot!.snapshot_at,
           snapshot_hash: snapshot!.snapshot_hash,
           settlement_hash: "", // Will be computed below

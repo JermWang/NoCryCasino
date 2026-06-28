@@ -102,6 +102,15 @@ async function sendSol(args: { fromKeypair: any; toAddress: string; lamports: nu
   }, { maxRetries: 3, retryDelayMs: 1000 })
 }
 
+/** Read the current lamports balance of an address (with RPC fallback). */
+async function getAddressLamports(address: string): Promise<number> {
+  const { PublicKey } = await import("@solana/web3.js")
+  const pubkey = new PublicKey(address)
+  return withRpcFallback(async (connection) => {
+    return connection.getBalance(pubkey, "confirmed")
+  }, { maxRetries: 3, retryDelayMs: 1000 })
+}
+
 export async function POST(request: NextRequest) {
   const limited = rateLimit({ request, key: "admin:tournaments:payout", limit: 20, windowMs: 60_000 })
   if (limited) return limited
@@ -213,6 +222,17 @@ export async function POST(request: NextRequest) {
     try {
       const lamports = Math.floor(prize * 1e9)
       if (lamports <= 0) throw new Error("Amount too low")
+
+      // Pre-send solvency assertion: refuse (and release the claim via the catch
+      // below for a later retry) rather than attempting an insolvent send. The
+      // escrow must cover the prize plus a per-transfer network-fee allowance.
+      const NETWORK_FEE_LAMPORTS = 5_000
+      const escrowLamports = await getAddressLamports(escrow)
+      if (escrowLamports < lamports + NETWORK_FEE_LAMPORTS) {
+        throw new Error(
+          `Insufficient escrow balance: have ${(escrowLamports / 1e9).toFixed(6)} SOL, need ${((lamports + NETWORK_FEE_LAMPORTS) / 1e9).toFixed(6)} SOL`,
+        )
+      }
 
       const sig = await sendSol({ fromKeypair: keypair, toAddress: winner, lamports })
 
