@@ -19,19 +19,24 @@ import {
   BarChart3,
   Wallet,
   Trophy as TrophyIcon,
+  ArrowUpRight,
+  ArrowDownRight,
 } from "lucide-react"
 import Link from "next/link"
 import { PmShell } from "@/components/pm/pm-shell"
 import { MarketCard, MarketCardSkeleton } from "@/components/pm/market-card"
 import { usePmRounds } from "@/components/pm/use-pm-rounds"
 import { PoolBar } from "@/components/pm/pool-bar"
+import { KolAvatar } from "@/components/pm/pm-ui"
 import {
   base64FromBytes,
   buildPmMessage,
   formatCompact,
+  impliedYesPct,
   makeNonce,
   mintLabel,
   isPastLock,
+  shortAddress,
 } from "@/components/pm/pm-client"
 import type { MarketType, RoundSummary } from "@/components/pm/types"
 
@@ -260,6 +265,39 @@ export default function PredictionMarketsPage() {
     return { openCount: open.length, totalVolume, totalBettors, currency }
   }, [rounds])
 
+  // Top KOL outcomes across all rounds — the banner's "TOP MARKETS" leaderboard.
+  const topMarkets = useMemo(() => {
+    type Row = {
+      round: RoundSummary
+      outcomeId: string
+      name: string
+      avatar: string | null
+      pct: number
+      total: number
+    }
+    const rows: Row[] = []
+    for (const r of rounds) {
+      for (const o of r.outcomes) {
+        const total = Number(o.total_pool ?? 0)
+        if (total <= 0) continue
+        const name =
+          o.kols?.display_name && o.kols.display_name.length > 0
+            ? o.kols.display_name
+            : shortAddress(o.kol_wallet_address)
+        rows.push({
+          round: r,
+          outcomeId: o.outcome_id,
+          name,
+          avatar: o.kols?.avatar_url ?? null,
+          pct: impliedYesPct(o.yes_pool, o.no_pool, o.yes_prob),
+          total,
+        })
+      }
+    }
+    rows.sort((a, b) => b.total - a.total)
+    return rows.slice(0, 5)
+  }, [rounds])
+
   const filteredPredictions = predictions.filter((p) => {
     if (!searchQuery.trim()) return true
     return p.question.toLowerCase().includes(searchQuery.toLowerCase())
@@ -268,42 +306,53 @@ export default function PredictionMarketsPage() {
   return (
     <PmShell>
       {/* Hero */}
-      <div className="mb-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h1 className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-4xl font-bold tracking-tight text-transparent">
-              Prediction Markets
+      <section className="pm-panel mb-8 overflow-hidden">
+        <div className="relative flex flex-col gap-6 p-6 md:p-8 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="mb-3 inline-flex items-center gap-2">
+              <span className="pm-live-dot" aria-hidden />
+              <span className="pm-kicker">No Cry Casino · Prediction Markets</span>
+            </div>
+            <h1 className="pm-display text-4xl text-foreground sm:text-5xl">
+              Predict the top KOLs. <span className="pm-glow-strong">Win big.</span>
             </h1>
-            <p className="mt-2 max-w-xl text-lg text-muted-foreground">
+            <p className="mt-3 max-w-xl text-base text-muted-foreground">
               Parimutuel pools on the best Solana KOLs. Stake YES or NO — winners split both pools.
+              Real markets, live odds, trustless payouts.
             </p>
+
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(true)}
+                className="pm-btn-green group inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.6)]"
+              >
+                <Plus className="h-4 w-4" /> Create Market
+              </button>
+              <Link
+                href="/leaderboard"
+                className="pm-btn-green-outline inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.5)]"
+              >
+                <TrophyIcon className="h-4 w-4" /> Leaderboard
+              </Link>
+              <Link
+                href="/pm/me"
+                className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-card/40 px-4 py-2.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur-sm transition-colors hover:border-[rgba(57,255,20,0.4)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.5)]"
+              >
+                <Wallet className="h-4 w-4" /> Portfolio
+              </Link>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/leaderboard"
-              className="inline-flex items-center gap-2 rounded-xl border border-border/50 bg-card/40 px-4 py-3 text-sm font-medium text-muted-foreground backdrop-blur-sm transition-colors hover:border-emerald-500/30 hover:text-foreground"
-            >
-              <TrophyIcon className="h-4 w-4" /> Leaderboard
-            </Link>
-            <Link
-              href="/pm/me"
-              className="inline-flex items-center gap-2 rounded-xl border border-border/50 bg-card/40 px-4 py-3 text-sm font-medium text-muted-foreground backdrop-blur-sm transition-colors hover:border-emerald-500/30 hover:text-foreground"
-            >
-              <Wallet className="h-4 w-4" /> Portfolio
-            </Link>
-            <button
-              type="button"
-              onClick={() => setShowCreateModal(true)}
-              className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:scale-[1.02]"
-            >
-              <Plus className="h-5 w-5" /> Create
-            </button>
+
+          {/* Top markets snapshot (banner "TOP MARKETS" leaderboard) */}
+          <div className="w-full shrink-0 lg:w-80">
+            <TopMarketsPanel rows={topMarkets} loading={loading} />
           </div>
         </div>
 
         {/* Stats strip */}
         {viewTab === "markets" && (
-          <div className="mt-6 grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-px border-t border-[var(--pm-line)] bg-[var(--pm-line)]">
             <StatStrip
               icon={<Flame className="h-4 w-4 text-emerald-400" />}
               label="Open markets"
@@ -321,7 +370,7 @@ export default function PredictionMarketsPage() {
             />
           </div>
         )}
-      </div>
+      </section>
 
       {/* Tabs + search */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -331,8 +380,10 @@ export default function PredictionMarketsPage() {
               key={t}
               type="button"
               onClick={() => setViewTab(t)}
-              className={`rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${
-                viewTab === t ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+              className={`rounded-lg px-5 py-2.5 text-sm font-bold uppercase tracking-wide transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.5)] ${
+                viewTab === t
+                  ? "pm-btn-green"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {t === "markets" ? "KOL Markets" : "Community"}
@@ -344,10 +395,11 @@ export default function PredictionMarketsPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
+            aria-label={viewTab === "markets" ? "Search KOLs and markets" : "Search predictions"}
             placeholder={viewTab === "markets" ? "Search KOLs, markets…" : "Search predictions…"}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-10 w-full rounded-xl border border-border/40 bg-card/30 pl-10 pr-4 text-sm backdrop-blur-sm placeholder:text-muted-foreground focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 sm:w-72"
+            className="pm-input h-10 pl-10 pr-4 text-sm sm:w-72"
           />
         </div>
       </div>
@@ -360,10 +412,10 @@ export default function PredictionMarketsPage() {
               key={mt}
               type="button"
               onClick={() => setTypeFilter(mt)}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+              className={`rounded-lg px-4 py-2 text-sm font-bold uppercase tracking-wide transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.5)] ${
                 typeFilter === mt
-                  ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                  : "border border-border/40 text-muted-foreground hover:border-border hover:text-foreground"
+                  ? "border border-[rgba(57,255,20,0.4)] bg-[rgba(57,255,20,0.1)] text-emerald-400 [text-shadow:0_0_10px_rgba(57,255,20,0.4)]"
+                  : "border border-border/40 text-muted-foreground hover:border-[rgba(57,255,20,0.3)] hover:text-foreground"
               }`}
             >
               {mt === "ALL" ? "All types" : mt.charAt(0) + mt.slice(1).toLowerCase()}
@@ -379,7 +431,7 @@ export default function PredictionMarketsPage() {
               value={sortKey}
               onChange={(e) => setSortKey(e.target.value as SortKey)}
               aria-label="Sort markets"
-              className="h-9 cursor-pointer appearance-none rounded-lg border border-border/40 bg-card/30 pl-8 pr-8 text-sm font-medium text-foreground backdrop-blur-sm focus:border-emerald-500/50 focus:outline-none"
+              className="pm-input h-9 cursor-pointer appearance-none pl-8 pr-8 text-sm font-semibold"
             >
               {SORTS.map((s) => (
                 <option key={s.value} value={s.value}>
@@ -404,10 +456,10 @@ export default function PredictionMarketsPage() {
               key={cat.value}
               type="button"
               onClick={() => setCategory(cat.value)}
-              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold uppercase tracking-wide transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.5)] ${
                 category === cat.value
-                  ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                  : "border border-border/40 text-muted-foreground hover:border-border hover:text-foreground"
+                  ? "border border-[rgba(57,255,20,0.4)] bg-[rgba(57,255,20,0.1)] text-emerald-400"
+                  : "border border-border/40 text-muted-foreground hover:border-[rgba(57,255,20,0.3)] hover:text-foreground"
               }`}
             >
               {cat.icon}
@@ -416,6 +468,14 @@ export default function PredictionMarketsPage() {
           ))}
         </div>
       )}
+
+      {/* Section header */}
+      <div className="mb-4 flex items-center gap-2">
+        <Flame className="h-5 w-5 text-emerald-400" />
+        <h2 className="pm-display text-lg text-foreground">
+          {viewTab === "markets" ? "Top Markets" : "Community Predictions"}
+        </h2>
+      </div>
 
       {/* Content */}
       {viewTab === "markets" ? (
@@ -459,7 +519,7 @@ export default function PredictionMarketsPage() {
             <button
               type="button"
               onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-600"
+              className="pm-btn-green inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm"
             >
               <Plus className="h-4 w-4" /> Create Prediction
             </button>
@@ -472,12 +532,10 @@ export default function PredictionMarketsPage() {
             return (
               <div
                 key={p.prediction_id}
-                className="group rounded-2xl border border-border/40 bg-card/40 p-5 backdrop-blur-sm transition-all hover:border-emerald-500/30 hover:bg-card/60"
+                className="pm-panel pm-card-hover group p-5"
               >
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium capitalize">
-                    {p.category}
-                  </span>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <span className="pm-chip">{p.category}</span>
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                     <Clock className="h-3 w-3" /> {formatTimeLeft(p.end_date)}
                   </span>
@@ -485,7 +543,7 @@ export default function PredictionMarketsPage() {
                 <h3 className="mb-3 line-clamp-3 text-sm font-semibold leading-tight">{p.question}</h3>
                 <PoolBar yesPool={p.yes_pool} noPool={p.no_pool} />
                 <div className="mt-3 flex items-center justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
-                  <span>{getYesPercent(p.yes_pool, p.no_pool)}% implied YES</span>
+                  <span className="font-semibold text-emerald-400">{yesPercent}% YES</span>
                   <span className="tabular-nums">{formatCompact(p.total_volume)} vol</span>
                 </div>
               </div>
@@ -497,8 +555,8 @@ export default function PredictionMarketsPage() {
       {/* Create Prediction Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowCreateModal(false)} />
-          <div className="relative w-full max-w-lg rounded-2xl border border-border/60 bg-card p-6 shadow-2xl">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowCreateModal(false)} />
+          <div className="pm-panel relative w-full max-w-lg p-6 shadow-2xl">
             <button
               type="button"
               onClick={() => setShowCreateModal(false)}
@@ -509,34 +567,34 @@ export default function PredictionMarketsPage() {
             </button>
 
             <div className="mb-6">
-              <h2 className="text-xl font-bold">Create a Prediction</h2>
+              <h2 className="pm-display text-xl text-foreground">Create a Market</h2>
               <p className="mt-1 text-sm text-muted-foreground">Submit a yes/no question for the community to bet on.</p>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium">Question</label>
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Question</label>
                 <textarea
                   value={newQuestion}
                   onChange={(e) => setNewQuestion(e.target.value)}
                   placeholder="Will Bitcoin reach $100,000 by end of 2025?"
                   rows={3}
-                  className="w-full resize-none rounded-xl border border-border/60 bg-background/50 px-4 py-3 text-sm placeholder:text-muted-foreground focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  className="pm-input resize-none px-4 py-3 text-sm"
                 />
                 <div className="mt-1 text-right text-xs text-muted-foreground">{newQuestion.length}/500</div>
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium">Category</label>
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Category</label>
                 <div className="flex flex-wrap gap-2">
                   {CATEGORIES.filter((c) => c.value !== "all").map((cat) => (
                     <button
                       key={cat.value}
                       type="button"
                       onClick={() => setNewCategory(cat.value as Category)}
-                      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold uppercase tracking-wide transition-all ${
                         newCategory === cat.value
-                          ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                          ? "border border-[rgba(57,255,20,0.4)] bg-[rgba(57,255,20,0.1)] text-emerald-400"
                           : "border border-border/40 text-muted-foreground hover:text-foreground"
                       }`}
                     >
@@ -548,14 +606,14 @@ export default function PredictionMarketsPage() {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium">Resolution Date</label>
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Resolution Date</label>
                 <input
                   type="datetime-local"
                   value={newEndDate}
                   onChange={(e) => setNewEndDate(e.target.value)}
                   min={new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16)}
                   max={new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)}
-                  className="w-full rounded-xl border border-border/60 bg-background/50 px-4 py-3 text-sm focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  className="pm-input px-4 py-3 text-sm"
                 />
               </div>
 
@@ -564,7 +622,7 @@ export default function PredictionMarketsPage() {
                   <button
                     type="button"
                     onClick={() => setVisible(true)}
-                    className="w-full rounded-xl bg-foreground py-3 text-sm font-semibold text-background transition-opacity hover:opacity-90"
+                    className="pm-btn-green w-full rounded-xl py-3 text-sm"
                   >
                     Connect Wallet to Submit
                   </button>
@@ -573,7 +631,7 @@ export default function PredictionMarketsPage() {
                     type="button"
                     onClick={handleCreatePrediction}
                     disabled={submitting || !newQuestion.trim() || !newEndDate}
-                    className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
+                    className="pm-btn-green w-full rounded-xl py-3 text-sm"
                   >
                     {submitting ? "Submitting…" : "Submit Prediction"}
                   </button>
@@ -591,13 +649,72 @@ export default function PredictionMarketsPage() {
   )
 }
 
+/** The banner's "TOP MARKETS" leaderboard: avatar · KOL name · big green % + trend arrow. */
+function TopMarketsPanel({
+  rows,
+  loading,
+}: {
+  rows: { round: RoundSummary; outcomeId: string; name: string; avatar: string | null; pct: number; total: number }[]
+  loading: boolean
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--pm-line)] bg-[rgba(4,8,6,0.55)] p-4 backdrop-blur-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="pm-kicker">Top Markets</span>
+        <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+          <span className="pm-live-dot" aria-hidden /> Live
+        </span>
+      </div>
+      {loading ? (
+        <div className="space-y-2.5">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="pm-skeleton h-9 w-full" />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="py-3 text-xs text-muted-foreground">No live markets yet — be the first to set a line.</p>
+      ) : (
+        <ul className="space-y-1">
+          {rows.map((r, i) => {
+            const up = r.pct >= 50
+            return (
+              <li key={r.outcomeId}>
+                <Link
+                  href={`/pm/rounds/${encodeURIComponent(r.round.round_id)}`}
+                  className="group flex items-center gap-2.5 rounded-lg px-1.5 py-1.5 transition-colors hover:bg-[rgba(57,255,20,0.06)]"
+                >
+                  <span className="w-4 shrink-0 text-center text-xs font-bold tabular-nums text-muted-foreground">
+                    {i + 1}
+                  </span>
+                  <KolAvatar src={r.avatar} name={r.name} size={28} className="h-7 w-7" ring />
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground group-hover:text-emerald-400">
+                    {r.name}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-0.5 text-sm font-bold tabular-nums ${
+                      up ? "pm-figure-glow text-emerald-400" : "text-red-400"
+                    }`}
+                  >
+                    {up ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
+                    {r.pct}%
+                  </span>
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function StatStrip({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/40 bg-card/30 px-4 py-3 backdrop-blur-sm">
-      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">{icon}</div>
+    <div className="flex items-center gap-3 bg-[rgba(4,8,6,0.6)] px-4 py-4 backdrop-blur-sm">
+      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[rgba(57,255,20,0.1)]">{icon}</div>
       <div className="min-w-0">
         <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
-        <div className="truncate text-lg font-bold tabular-nums">{value}</div>
+        <div className="pm-figure truncate text-lg text-foreground">{value}</div>
       </div>
     </div>
   )
@@ -605,11 +722,11 @@ function StatStrip({ icon, label, value }: { icon: React.ReactNode; label: strin
 
 function EmptyState({ title, body, action }: { title: string; body: string; action?: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-border/40 bg-card/30 p-12 text-center backdrop-blur-sm">
-      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
-        <TrendingUp className="h-6 w-6 text-muted-foreground" />
+    <div className="pm-panel p-12 text-center">
+      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[rgba(57,255,20,0.1)]">
+        <TrendingUp className="h-6 w-6 text-emerald-400" />
       </div>
-      <h3 className="text-lg font-semibold">{title}</h3>
+      <h3 className="pm-display text-lg text-foreground">{title}</h3>
       <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{body}</p>
       {action ? <div className="mt-4">{action}</div> : null}
     </div>
@@ -618,13 +735,13 @@ function EmptyState({ title, body, action }: { title: string; body: string; acti
 
 function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center">
+    <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-8 text-center">
       <p className="text-red-400">{message}</p>
       {onRetry ? (
         <button
           type="button"
           onClick={onRetry}
-          className="mt-4 rounded-lg border border-border/50 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/40"
+          className="mt-4 rounded-lg border border-border/50 px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted/40"
         >
           Try again
         </button>

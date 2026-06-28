@@ -4,11 +4,15 @@ import type { ReactNode } from "react"
 import { Toaster } from "sonner"
 import { Header } from "@/components/header"
 import { AsciiShaderBackground } from "@/components/ascii-shader-background"
+import { PmFeatureStrip } from "./pm-feature-strip"
+import "./pm-theme.css"
 
 type PmShellProps = {
   children: ReactNode
   /** Constrain the main content width. Defaults to the wide 7xl grid. */
   maxWidth?: "lg" | "xl" | "2xl" | "5xl" | "6xl" | "7xl"
+  /** Hide the bottom feature strip (e.g. for dense sub-pages). */
+  hideFeatureStrip?: boolean
 }
 
 const MAX_WIDTH: Record<NonNullable<PmShellProps["maxWidth"]>, string> = {
@@ -22,17 +26,21 @@ const MAX_WIDTH: Record<NonNullable<PmShellProps["maxWidth"]>, string> = {
 
 /**
  * Shared chrome for every prediction-market page: the animated ASCII
- * background, the global header, a self-contained Sonner toaster (the root
- * layout does not mount one), and a centered main container. Keeps the PM
- * surface visually consistent and trustworthy across list / detail / account.
+ * background, a near-black neon "No Cry Casino" surface (themed via the scoped
+ * .pm-theme wrapper + pm-theme.css), the global header, a self-contained Sonner
+ * toaster (the root layout does not mount one), a centered main container, and
+ * the REAL MARKETS · LIVE ODDS · … feature strip. Keeps the PM surface visually
+ * consistent across list / detail / account.
  */
-export function PmShell({ children, maxWidth = "7xl" }: PmShellProps) {
+export function PmShell({ children, maxWidth = "7xl", hideFeatureStrip = false }: PmShellProps) {
   return (
-    <div className="relative min-h-screen bg-black">
-      <AsciiShaderBackground mode="plasma" opacity={0.1} color="emerald" />
-      <div className="relative z-10">
+    <div className="pm-theme relative min-h-screen bg-[#04070a]">
+      <AsciiShaderBackground mode="plasma" opacity={0.14} color="emerald" />
+      <div className="pm-grid-texture" aria-hidden />
+      <div className="relative z-10 flex min-h-screen flex-col">
         <Header />
-        <main className={`mx-auto ${MAX_WIDTH[maxWidth]} px-4 py-8`}>{children}</main>
+        <main className={`mx-auto w-full flex-1 ${MAX_WIDTH[maxWidth]} px-4 py-8`}>{children}</main>
+        {!hideFeatureStrip && <PmFeatureStrip />}
       </div>
       <Toaster
         position="bottom-right"
@@ -41,9 +49,9 @@ export function PmShell({ children, maxWidth = "7xl" }: PmShellProps) {
         closeButton
         toastOptions={{
           style: {
-            background: "hsl(0 0% 12%)",
-            border: "1px solid hsl(0 0% 18%)",
-            color: "hsl(0 0% 84%)",
+            background: "#070b09",
+            border: "1px solid rgba(124, 255, 107, 0.22)",
+            color: "hsl(0 0% 92%)",
           },
         }}
       />

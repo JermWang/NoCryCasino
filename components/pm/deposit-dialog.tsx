@@ -11,8 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 import { base64FromBytes, buildPmMessage, makeNonce, mintLabel, shortAddress } from "./pm-client"
 import type { RoundRow } from "./types"
 
@@ -152,9 +150,10 @@ export function DepositDialog({ open, onOpenChange, onDeposited }: DepositDialog
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="border-border/60 bg-card/95 backdrop-blur-xl">
+      <DialogContent className="pm-theme border-[rgba(124,255,107,0.22)] bg-[#070b09]/95 backdrop-blur-xl">
         <DialogHeader>
-          <DialogTitle>Deposit collateral</DialogTitle>
+          <span className="pm-kicker">No Cry Casino</span>
+          <DialogTitle className="pm-display text-foreground">Deposit collateral</DialogTitle>
           <DialogDescription>
             Send {currency} to the round escrow, then submit your transaction to credit your balance.
           </DialogDescription>
@@ -171,11 +170,11 @@ export function DepositDialog({ open, onOpenChange, onDeposited }: DepositDialog
             {/* Round selector */}
             {rounds.length > 1 && (
               <div>
-                <label className="mb-1.5 block text-sm font-medium">Round</label>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Round</label>
                 <select
                   value={roundId}
                   onChange={(e) => setRoundId(e.target.value)}
-                  className="w-full rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-sm focus:border-emerald-500/50 focus:outline-none"
+                  className="pm-input px-3 py-2 text-sm"
                 >
                   {rounds.map((r) => (
                     <option key={r.round_id} value={r.round_id}>
@@ -226,7 +225,7 @@ export function DepositDialog({ open, onOpenChange, onDeposited }: DepositDialog
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     inputMode="decimal"
-                    className="w-full rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-sm tabular-nums focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    className="pm-input px-3 py-2 text-sm tabular-nums"
                   />
                 </div>
                 <div>
@@ -235,7 +234,7 @@ export function DepositDialog({ open, onOpenChange, onDeposited }: DepositDialog
                     value={txSig}
                     onChange={(e) => setTxSig(e.target.value)}
                     placeholder="Paste the deposit tx signature"
-                    className="w-full rounded-lg border border-border/60 bg-background/40 px-3 py-2 font-mono text-xs focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    className="pm-input px-3 py-2 font-mono text-xs"
                   />
                   {sigValid && (
                     <a
@@ -251,14 +250,15 @@ export function DepositDialog({ open, onOpenChange, onDeposited }: DepositDialog
               </div>
             </div>
 
-            <Button
+            <button
+              type="button"
               onClick={submitCredit}
               disabled={submitting || !amountValid || !sigValid}
-              className={cn("h-11 w-full gap-2 font-semibold")}
+              className="pm-btn-green inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.6)]"
             >
               {submitting ? "Verifying on-chain…" : "Credit my deposit"}
               {!submitting && <ArrowRight className="h-4 w-4" />}
-            </Button>
+            </button>
 
             <p className="text-center text-[11px] text-muted-foreground">
               We verify the transfer on-chain before crediting. Funds are custodied per round.

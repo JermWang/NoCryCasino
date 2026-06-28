@@ -9,9 +9,9 @@ import type { RoundSummary } from "./types"
 import { formatCompact, impliedYesPct, isPastLock, mintLabel, shortAddress } from "./pm-client"
 
 const TYPE_STYLES: Record<string, string> = {
-  DAILY: "bg-blue-500/10 text-blue-300 border-blue-500/20",
-  WEEKLY: "bg-purple-500/10 text-purple-300 border-purple-500/20",
-  MONTHLY: "bg-amber-500/10 text-amber-300 border-amber-500/20",
+  DAILY: "bg-[rgba(57,255,20,0.1)] text-emerald-300 border-[rgba(57,255,20,0.28)]",
+  WEEKLY: "bg-[rgba(124,255,107,0.08)] text-emerald-300/90 border-[rgba(124,255,107,0.24)]",
+  MONTHLY: "bg-[rgba(124,255,107,0.06)] text-emerald-200/80 border-[rgba(124,255,107,0.2)]",
 }
 
 /**
@@ -40,38 +40,39 @@ export function MarketCard({ round }: { round: RoundSummary }) {
         : 50
 
   return (
-    <Link href={`/pm/rounds/${encodeURIComponent(round.round_id)}`} className="group block">
-      <Card className="h-full gap-3.5 border-border/50 bg-card/40 p-5 backdrop-blur-sm transition-all hover:border-emerald-500/30 hover:bg-card/60 hover:shadow-lg hover:shadow-emerald-500/5">
+    <Link
+      href={`/pm/rounds/${encodeURIComponent(round.round_id)}`}
+      className="group block rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.5)]"
+    >
+      <Card className="pm-panel pm-card-hover h-full gap-3.5 p-5">
         {/* Header row */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <span
-              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
                 TYPE_STYLES[round.market_type] ?? "bg-muted text-muted-foreground border-border/40"
               }`}
             >
               {round.market_type}
             </span>
             <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                canBet ? "bg-emerald-500/10 text-emerald-400" : "bg-muted text-muted-foreground"
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
+                canBet ? "bg-[rgba(57,255,20,0.1)] text-emerald-400" : "bg-muted text-muted-foreground"
               }`}
             >
               {locked && isOpen ? "LOCKED" : round.status}
             </span>
           </div>
-          <span className="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-            {currency}
-          </span>
+          <span className="pm-chip pm-chip-muted">{currency}</span>
         </div>
 
         {/* Headline outcome */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2.5">
             {top ? (
-              <KolAvatar src={top.kols?.avatar_url} name={topName ?? "?"} size={36} className="h-9 w-9" />
+              <KolAvatar src={top.kols?.avatar_url} name={topName ?? "?"} size={36} className="h-9 w-9" ring />
             ) : (
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[rgba(57,255,20,0.1)] text-emerald-400 ring-2 ring-[rgba(57,255,20,0.4)]">
                 <TrendingUp className="h-4 w-4" />
               </div>
             )}
@@ -87,15 +88,15 @@ export function MarketCard({ round }: { round: RoundSummary }) {
             </div>
           </div>
           {round.hydrated && top && (
-            <div className="text-right leading-none">
+            <div className="flex flex-col items-end leading-none">
               <div
-                className={`text-2xl font-bold tabular-nums ${
-                  headlinePct >= 50 ? "text-emerald-400" : "text-red-400"
+                className={`pm-figure text-2xl ${
+                  headlinePct >= 50 ? "pm-figure-glow text-emerald-400" : "text-red-400"
                 }`}
               >
                 {headlinePct}%
               </div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">YES</div>
+              <div className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">YES</div>
             </div>
           )}
         </div>
@@ -109,27 +110,27 @@ export function MarketCard({ round }: { round: RoundSummary }) {
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-2 text-xs">
-          <div className="rounded-lg border border-border/40 bg-background/30 px-2 py-1.5">
+          <div className="rounded-lg border border-border/40 bg-[rgba(4,8,6,0.5)] px-2 py-1.5">
             <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
               <TrendingUp className="h-3 w-3" /> Volume
             </div>
-            <div className="mt-0.5 font-semibold tabular-nums">
+            <div className="mt-0.5 font-bold tabular-nums">
               {round.hydrated ? `${formatCompact(round.totalPool)}` : "—"}
             </div>
           </div>
-          <div className="rounded-lg border border-border/40 bg-background/30 px-2 py-1.5">
+          <div className="rounded-lg border border-border/40 bg-[rgba(4,8,6,0.5)] px-2 py-1.5">
             <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
               <Users className="h-3 w-3" /> Bettors
             </div>
-            <div className="mt-0.5 font-semibold tabular-nums">
+            <div className="mt-0.5 font-bold tabular-nums">
               {round.hydrated ? round.bettorCount : "—"}
             </div>
           </div>
-          <div className="rounded-lg border border-border/40 bg-background/30 px-2 py-1.5">
+          <div className="rounded-lg border border-border/40 bg-[rgba(4,8,6,0.5)] px-2 py-1.5">
             <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
               <Layers className="h-3 w-3" /> Markets
             </div>
-            <div className="mt-0.5 font-semibold tabular-nums">
+            <div className="mt-0.5 font-bold tabular-nums">
               {round.hydrated ? round.outcomeCount : "—"}
             </div>
           </div>
@@ -141,7 +142,7 @@ export function MarketCard({ round }: { round: RoundSummary }) {
             {canBet ? <Clock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
             {canBet ? <CountdownPlain lockTs={round.lock_ts} /> : "Betting closed"}
           </span>
-          <span className="inline-flex items-center gap-0.5 text-xs font-medium text-emerald-400 opacity-0 transition-opacity group-hover:opacity-100">
+          <span className="inline-flex items-center gap-0.5 text-xs font-bold uppercase tracking-wide text-emerald-400 opacity-0 transition-opacity group-hover:opacity-100">
             Trade <ChevronRight className="h-3.5 w-3.5" />
           </span>
         </div>
@@ -162,28 +163,28 @@ function CountdownPlain({ lockTs }: { lockTs: string }) {
 /** Skeleton placeholder card for the loading grid. */
 export function MarketCardSkeleton() {
   return (
-    <Card className="h-full gap-3.5 border-border/50 bg-card/40 p-5">
+    <Card className="pm-panel h-full gap-3.5 p-5">
       <div className="flex items-center justify-between">
         <div className="flex gap-1.5">
-          <div className="h-5 w-12 animate-pulse rounded-full bg-muted/40" />
-          <div className="h-5 w-12 animate-pulse rounded-full bg-muted/40" />
+          <div className="pm-skeleton h-5 w-12 rounded-full" />
+          <div className="pm-skeleton h-5 w-12 rounded-full" />
         </div>
-        <div className="h-5 w-10 animate-pulse rounded-full bg-muted/40" />
+        <div className="pm-skeleton h-5 w-10 rounded-full" />
       </div>
       <div className="flex items-center gap-2.5">
-        <div className="h-9 w-9 animate-pulse rounded-full bg-muted/40" />
+        <div className="pm-skeleton h-9 w-9 rounded-full" />
         <div className="flex-1 space-y-1.5">
-          <div className="h-4 w-3/4 animate-pulse rounded bg-muted/40" />
-          <div className="h-3 w-1/2 animate-pulse rounded bg-muted/30" />
+          <div className="pm-skeleton h-4 w-3/4" />
+          <div className="pm-skeleton h-3 w-1/2" />
         </div>
       </div>
-      <div className="h-2 w-full animate-pulse rounded-full bg-muted/40" />
+      <div className="pm-skeleton h-2 w-full rounded-full" />
       <div className="grid grid-cols-3 gap-2">
-        <div className="h-10 animate-pulse rounded-lg bg-muted/30" />
-        <div className="h-10 animate-pulse rounded-lg bg-muted/30" />
-        <div className="h-10 animate-pulse rounded-lg bg-muted/30" />
+        <div className="pm-skeleton h-10" />
+        <div className="pm-skeleton h-10" />
+        <div className="pm-skeleton h-10" />
       </div>
-      <div className="h-8 w-full animate-pulse rounded bg-muted/20" />
+      <div className="pm-skeleton h-8 w-full" />
     </Card>
   )
 }

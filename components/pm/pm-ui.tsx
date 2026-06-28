@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, type ReactNode } from "react"
-import { Clock, Lock, Info, Sparkles, ShieldCheck } from "lucide-react"
+import { Clock, Lock, Info, Sparkles, ShieldCheck, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { timeUntil, isPastLock } from "./pm-client"
 
@@ -32,11 +32,11 @@ export function CountdownPill({ lockTs, closed, size = "md", className }: Countd
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-lg border font-medium tabular-nums",
+        "inline-flex items-center gap-1.5 rounded-lg border font-semibold uppercase tracking-wide tabular-nums",
         pad,
         isClosed
           ? "border-border/60 bg-muted/30 text-muted-foreground"
-          : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+          : "border-[rgba(57,255,20,0.4)] bg-[rgba(57,255,20,0.1)] text-emerald-400 [text-shadow:0_0_10px_rgba(57,255,20,0.45)]",
         className,
       )}
     >
@@ -100,11 +100,11 @@ type OddsDialProps = {
 /** Prominent YES odds figure (Polymarket-style "62%"). */
 export function OddsDial({ yesPct, size = "md", className }: OddsDialProps) {
   const pct = Math.min(100, Math.max(0, Math.round(yesPct)))
-  const tone = pct >= 50 ? "text-emerald-400" : "text-red-400"
+  const tone = pct >= 50 ? "text-emerald-400 pm-figure-glow" : "text-red-400"
   const num = size === "lg" ? "text-4xl" : size === "sm" ? "text-xl" : "text-2xl"
   return (
     <div className={cn("flex flex-col items-end leading-none", className)}>
-      <div className={cn("font-bold tabular-nums", num, tone)}>{pct}%</div>
+      <div className={cn("pm-figure", num, tone)}>{pct}%</div>
       <div className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">YES</div>
     </div>
   )
@@ -122,17 +122,61 @@ export function OddsDial({ yesPct, size = "md", className }: OddsDialProps) {
 export function FeeWaiverBadge({ qualifies }: { qualifies?: boolean }) {
   if (qualifies) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-[rgba(57,255,20,0.45)] bg-[rgba(57,255,20,0.12)] px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-300 [text-shadow:0_0_10px_rgba(57,255,20,0.5)]">
         <ShieldCheck className="h-3.5 w-3.5" />
         Fees waived · $NOCRY holder
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-3 py-1 text-xs font-medium text-muted-foreground">
-      <Sparkles className="h-3.5 w-3.5 text-emerald-400/70" />
-      Hold 10k+ $NOCRY for 0% fees
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-[rgba(124,255,107,0.28)] bg-[rgba(124,255,107,0.06)] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-300/90">
+      <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+      Hold 10k+ $NOCRY → 0 fees
     </span>
+  )
+}
+
+/**
+ * Prominent fee-waiver call-out for the bet slip. Loud green banner reminding
+ * the user that holding 10k $NOCRY waives all rake on winnings.
+ */
+export function FeeWaiverBanner({ qualifies }: { qualifies?: boolean }) {
+  const active = qualifies === true
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 rounded-xl border p-3",
+        active
+          ? "border-[rgba(57,255,20,0.5)] bg-[rgba(57,255,20,0.1)]"
+          : "border-[rgba(124,255,107,0.28)] bg-[rgba(124,255,107,0.05)]",
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+          active ? "bg-[rgba(57,255,20,0.18)]" : "bg-[rgba(124,255,107,0.1)]",
+        )}
+      >
+        <Zap className="h-4 w-4 text-emerald-400" />
+      </span>
+      <div className="min-w-0 text-xs leading-tight">
+        {active ? (
+          <>
+            <div className="font-bold uppercase tracking-wide text-emerald-300 [text-shadow:0_0_10px_rgba(57,255,20,0.5)]">
+              0 fees active
+            </div>
+            <div className="text-muted-foreground">Your $NOCRY balance waives all rake on winnings.</div>
+          </>
+        ) : (
+          <>
+            <div className="font-bold uppercase tracking-wide text-emerald-300">
+              Hold 10k $NOCRY → 0 fees
+            </div>
+            <div className="text-muted-foreground">Otherwise a small rake applies to winnings only.</div>
+          </>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -144,12 +188,12 @@ export function FeeWaiverBadge({ qualifies }: { qualifies?: boolean }) {
 export function PayoutExplainer({ rakeBps = 250 }: { rakeBps?: number }) {
   const rakePct = (rakeBps / 100).toFixed(2).replace(/\.00$/, "")
   return (
-    <div className="rounded-2xl border border-border/50 bg-card/40 p-5 backdrop-blur-sm">
+    <div className="pm-panel p-5">
       <div className="mb-3 flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[rgba(57,255,20,0.12)] text-emerald-400">
           <Info className="h-4 w-4" />
         </div>
-        <h3 className="text-sm font-semibold">How payouts work</h3>
+        <h3 className="pm-display text-sm">How payouts work</h3>
       </div>
       <ol className="space-y-2.5 text-sm text-muted-foreground">
         <li className="flex gap-2.5">
@@ -203,20 +247,28 @@ export function KolAvatar({
   name,
   size = 40,
   className,
+  ring = false,
 }: {
   src?: string | null
   name: string
   size?: number
   className?: string
+  /** Render a glowing neon-green ring (banner-style KOL cards). */
+  ring?: boolean
 }) {
   const [failed, setFailed] = useState(false)
   const initials = name.trim().slice(0, 2).toUpperCase() || "?"
+
+  const ringCls = ring
+    ? "ring-2 ring-[rgba(57,255,20,0.55)] shadow-[0_0_14px_rgba(57,255,20,0.35)]"
+    : "ring-1 ring-border/60"
 
   if (!src || failed) {
     return (
       <div
         className={cn(
-          "flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500/20 to-teal-500/10 text-xs font-bold uppercase text-emerald-300 ring-1 ring-border/60",
+          "flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500/25 to-teal-500/10 text-xs font-bold uppercase text-emerald-300",
+          ringCls,
           className,
         )}
         style={{ height: size, width: size }}
@@ -231,7 +283,7 @@ export function KolAvatar({
       src={src}
       alt={name}
       onError={() => setFailed(true)}
-      className={cn("shrink-0 rounded-full object-cover ring-1 ring-border/60", className)}
+      className={cn("shrink-0 rounded-full object-cover", ringCls, className)}
       style={{ height: size, width: size }}
     />
   )

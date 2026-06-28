@@ -30,3 +30,5 @@ next-env.d.ts
 # claude code local settings / scratch
 .claude/
 _genkeys.mjs
+
+.vercel

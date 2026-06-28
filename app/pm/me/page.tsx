@@ -17,7 +17,6 @@ import {
   Lock,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { PmShell } from "@/components/pm/pm-shell"
 import { DepositDialog } from "@/components/pm/deposit-dialog"
@@ -89,33 +88,42 @@ export default function PmMePage() {
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Portfolio</h1>
+          <span className="pm-kicker">No Cry Casino</span>
+          <h1 className="pm-display mt-1 text-3xl text-foreground">Portfolio</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {connected && publicKey
               ? `Trading account · ${shortAddress(publicKey.toBase58())}`
               : "Your balances, positions, and P&L."}
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {!connected ? (
-            <Button onClick={() => setVisible(true)} className="gap-2">
+            <button
+              type="button"
+              onClick={() => setVisible(true)}
+              className="pm-btn-green inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm"
+            >
               <Wallet className="h-4 w-4" /> Connect wallet
-            </Button>
+            </button>
           ) : (
             <>
-              <Button onClick={() => setDepositOpen(true)} className="gap-1.5 bg-emerald-500 text-white hover:bg-emerald-600">
+              <button
+                type="button"
+                onClick={() => setDepositOpen(true)}
+                className="pm-btn-green inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm"
+              >
                 <ArrowDownToLine className="h-4 w-4" /> Deposit
-              </Button>
-              <Button
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setWithdrawMint(undefined)
                   setWithdrawOpen(true)
                 }}
-                variant="outline"
-                className="gap-1.5"
+                className="pm-btn-green-outline inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm"
               >
                 <ArrowUpFromLine className="h-4 w-4" /> Withdraw
-              </Button>
+              </button>
               <Button onClick={() => refresh()} disabled={loading} variant="ghost" size="icon" title="Refresh">
                 <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               </Button>
@@ -125,17 +133,21 @@ export default function PmMePage() {
       </div>
 
       {!connected ? (
-        <Card className="border-border/60 bg-card/50 py-16 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10">
+        <Card className="pm-panel py-16 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(57,255,20,0.1)] ring-2 ring-[rgba(57,255,20,0.35)]">
             <Wallet className="h-7 w-7 text-emerald-400" />
           </div>
-          <h3 className="text-lg font-semibold">Connect your wallet</h3>
+          <h3 className="pm-display text-lg text-foreground">Connect your wallet</h3>
           <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
             Connect a Solana wallet to view your trading balance, open positions, and settled P&L.
           </p>
-          <Button onClick={() => setVisible(true)} className="mx-auto mt-5 gap-2">
+          <button
+            type="button"
+            onClick={() => setVisible(true)}
+            className="pm-btn-green mx-auto mt-5 inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm"
+          >
             <Wallet className="h-4 w-4" /> Connect wallet
-          </Button>
+          </button>
         </Card>
       ) : (
         <>
@@ -176,51 +188,58 @@ export default function PmMePage() {
 
           {/* Balances */}
           <section className="mb-8">
-            <h2 className="mb-3 text-lg font-semibold">Balances</h2>
+            <h2 className="pm-display mb-3 text-lg text-foreground">Balances</h2>
             {balances.length === 0 ? (
-              <Card className="border-border/60 bg-card/50 py-10 text-center">
+              <Card className="pm-panel py-10 text-center">
                 <p className="text-sm text-muted-foreground">No balances yet.</p>
-                <Button onClick={() => setDepositOpen(true)} className="mx-auto mt-4 gap-1.5 bg-emerald-500 text-white hover:bg-emerald-600">
+                <button
+                  type="button"
+                  onClick={() => setDepositOpen(true)}
+                  className="pm-btn-green mx-auto mt-4 inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm"
+                >
                   <ArrowDownToLine className="h-4 w-4" /> Make your first deposit
-                </Button>
+                </button>
               </Card>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {balances.map((b) => {
                   const total = Number(b.available_collateral) + Number(b.reserved_collateral)
                   return (
-                    <Card key={b.mint} className="gap-3 border-border/60 bg-card/50 p-5">
+                    <Card key={b.mint} className="pm-panel gap-3 p-5">
                       <div className="flex items-center justify-between">
-                        <span className="inline-flex items-center gap-2 text-sm font-semibold">
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/10 text-xs text-emerald-400">
+                        <span className="inline-flex items-center gap-2 text-sm font-bold uppercase tracking-wide">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[rgba(57,255,20,0.12)] text-xs text-emerald-400 ring-1 ring-[rgba(57,255,20,0.35)]">
                             {mintLabel(b.mint).slice(0, 1)}
                           </span>
                           {mintLabel(b.mint)}
                         </span>
-                        <Badge variant="outline">{formatAmount(total, 3)} total</Badge>
+                        <span className="pm-chip pm-chip-muted">{formatAmount(total, 3)} total</span>
                       </div>
                       <div>
-                        <div className="text-2xl font-bold tabular-nums">{formatAmount(b.available_collateral, 4)}</div>
+                        <div className="pm-figure text-2xl text-foreground">{formatAmount(b.available_collateral, 4)}</div>
                         <div className="text-xs text-muted-foreground">
                           Available · Reserved{" "}
                           <span className="tabular-nums">{formatAmount(b.reserved_collateral, 4)}</span>
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => setDepositOpen(true)}>
+                        <button
+                          type="button"
+                          className="pm-btn-green-outline inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs"
+                          onClick={() => setDepositOpen(true)}
+                        >
                           <ArrowDownToLine className="h-3.5 w-3.5" /> Deposit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1 gap-1.5"
+                        </button>
+                        <button
+                          type="button"
+                          className="pm-btn-green-outline inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs"
                           onClick={() => {
                             setWithdrawMint(b.mint)
                             setWithdrawOpen(true)
                           }}
                         >
                           <ArrowUpFromLine className="h-3.5 w-3.5" /> Withdraw
-                        </Button>
+                        </button>
                       </div>
                     </Card>
                   )
@@ -232,15 +251,17 @@ export default function PmMePage() {
           {/* Positions */}
           <section className="mb-8">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Positions</h2>
+              <h2 className="pm-display text-lg text-foreground">Positions</h2>
               <div className="inline-flex rounded-lg border border-border/40 bg-card/30 p-0.5">
                 {(["open", "settled"] as BetTab[]).map((t) => (
                   <button
                     key={t}
                     type="button"
                     onClick={() => setBetTab(t)}
-                    className={`rounded-md px-3.5 py-1.5 text-xs font-medium transition-all ${
-                      betTab === t ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+                    className={`rounded-md px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide transition-all ${
+                      betTab === t
+                        ? "bg-[rgba(57,255,20,0.14)] text-emerald-300 [text-shadow:0_0_8px_rgba(57,255,20,0.4)]"
+                        : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
                     {t === "open" ? `Open (${openBets.length})` : `Settled (${settledBets.length})`}
@@ -252,7 +273,7 @@ export default function PmMePage() {
             {loading && bets.length === 0 ? (
               <div className="space-y-2">
                 {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="h-20 animate-pulse rounded-xl bg-card/40" />
+                  <div key={i} className="pm-skeleton h-20 rounded-xl" />
                 ))}
               </div>
             ) : betTab === "open" ? (
@@ -306,14 +327,15 @@ function SummaryCard({
   icon: React.ReactNode
   accent?: "default" | "emerald" | "red"
 }) {
-  const valueColor = accent === "emerald" ? "text-emerald-400" : accent === "red" ? "text-red-400" : "text-foreground"
+  const valueColor =
+    accent === "emerald" ? "text-emerald-400 pm-figure-glow" : accent === "red" ? "text-red-400" : "text-foreground"
   return (
-    <Card className="gap-2 border-border/60 bg-card/50 p-4">
+    <Card className="pm-panel gap-2 p-4">
       <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
         {icon}
         {label}
       </div>
-      <div className={`text-xl font-bold tabular-nums ${valueColor}`}>{value}</div>
+      <div className={`pm-figure text-xl ${valueColor}`}>{value}</div>
       <div className="text-[11px] text-muted-foreground">{sub}</div>
     </Card>
   )
@@ -326,15 +348,15 @@ function BetHeader({ bet }: { bet: EnrichedBet }) {
   }`
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <KolAvatar src={null} name={name} size={36} className="h-9 w-9" />
+      <KolAvatar src={null} name={name} size={36} className="h-9 w-9" ring />
       <div className="min-w-0">
         <Link href={href} className="block truncate font-semibold leading-tight hover:text-emerald-400">
           {name}
         </Link>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span
-            className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold ${
-              bet.sideLabel === "YES" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
+            className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+              bet.sideLabel === "YES" ? "bg-[rgba(57,255,20,0.15)] text-emerald-400" : "bg-red-500/15 text-red-400"
             }`}
           >
             {bet.sideLabel}
@@ -354,7 +376,7 @@ function OpenBetRow({ bet }: { bet: EnrichedBet }) {
   const pnl = value - Number(bet.amount)
   const up = pnl >= 0
   return (
-    <Card className="flex-row items-center justify-between gap-3 border-border/60 bg-card/50 p-3.5">
+    <Card className="pm-panel pm-card-hover flex-row items-center justify-between gap-3 p-3.5">
       <BetHeader bet={bet} />
       <div className="flex shrink-0 items-center gap-4 text-right">
         <div>
@@ -388,11 +410,11 @@ function SettledBetRow({ bet }: { bet: EnrichedBet }) {
   const verdictStyle = refunded
     ? "bg-muted text-muted-foreground"
     : won
-      ? "bg-emerald-500/15 text-emerald-400"
+      ? "bg-[rgba(57,255,20,0.16)] text-emerald-300 [text-shadow:0_0_10px_rgba(57,255,20,0.45)]"
       : "bg-red-500/15 text-red-400"
 
   return (
-    <Card className="flex-row items-center justify-between gap-3 border-border/60 bg-card/50 p-3.5">
+    <Card className="pm-panel pm-card-hover flex-row items-center justify-between gap-3 p-3.5">
       <BetHeader bet={bet} />
       <div className="flex shrink-0 items-center gap-4 text-right">
         <div>
@@ -423,12 +445,12 @@ function SettledBetRow({ bet }: { bet: EnrichedBet }) {
 
 function EmptyPositions({ title, body }: { title: string; body: string }) {
   return (
-    <Card className="border-border/60 bg-card/50 py-10 text-center">
-      <h3 className="font-semibold">{title}</h3>
+    <Card className="pm-panel py-10 text-center">
+      <h3 className="pm-display text-base text-foreground">{title}</h3>
       <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">{body}</p>
       <Link
         href="/pm"
-        className="mx-auto mt-4 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-600"
+        className="pm-btn-green mx-auto mt-4 inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm"
       >
         <TrendingUp className="h-4 w-4" /> Browse markets
       </Link>

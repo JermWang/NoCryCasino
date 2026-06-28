@@ -6,7 +6,6 @@ import { useWallet } from "@solana/wallet-adapter-react"
 import { useWalletModal } from "@solana/wallet-adapter-react-ui"
 import { ArrowLeft, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { PmShell } from "@/components/pm/pm-shell"
 import { OutcomeCard } from "@/components/pm/outcome-card"
 import { CountdownPill, PayoutExplainer, FeeWaiverBadge } from "@/components/pm/pm-ui"
@@ -139,7 +138,7 @@ export default function PmOutcomePage({ params }: { params: { outcomeId: string 
     return (
       <PmShell maxWidth="2xl">
         <BackLink href="/pm" label="Back to markets" />
-        <div className="h-96 animate-pulse rounded-2xl bg-card/40" />
+        <div className="pm-skeleton h-96 rounded-2xl" />
       </PmShell>
     )
   }
@@ -148,7 +147,7 @@ export default function PmOutcomePage({ params }: { params: { outcomeId: string 
     return (
       <PmShell maxWidth="2xl">
         <BackLink href="/pm" label="Back to markets" />
-        <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center text-red-400">
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-8 text-center text-red-400">
           Failed to load outcome: {error ?? "Not found"}
         </div>
       </PmShell>
@@ -161,11 +160,11 @@ export default function PmOutcomePage({ params }: { params: { outcomeId: string 
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">{round.market_type}</Badge>
-          <Badge variant={isOpen && !locked ? "default" : "outline"}>
+          <span className="pm-chip">{round.market_type}</span>
+          <span className={`pm-chip ${isOpen && !locked ? "" : "pm-chip-muted"}`}>
             {locked && isOpen ? "LOCKED" : round.status}
-          </Badge>
-          <Badge variant="outline">Stake in {currency}</Badge>
+          </span>
+          <span className="pm-chip pm-chip-muted">Stake in {currency}</span>
         </div>
         <CountdownPill lockTs={round.lock_ts} closed={bettingClosed} size="sm" />
       </div>
@@ -175,7 +174,7 @@ export default function PmOutcomePage({ params }: { params: { outcomeId: string 
       </div>
 
       {!connected ? (
-        <div className="mb-5 flex items-center justify-between rounded-xl border border-border/40 bg-card/30 p-4 text-sm text-muted-foreground">
+        <div className="mb-5 flex items-center justify-between rounded-xl border border-[var(--pm-line)] bg-[rgba(4,8,6,0.5)] p-4 text-sm text-muted-foreground">
           <span>Connect a wallet to place a bet.</span>
           <Button size="sm" variant="outline" onClick={() => setVisible(true)}>
             Connect wallet
@@ -196,6 +195,7 @@ export default function PmOutcomePage({ params }: { params: { outcomeId: string 
         bettingClosed={bettingClosed}
         available={available}
         rakeBps={rakeBps}
+        feeWaived={connected && feeWaived ? true : undefined}
         onBetPlaced={onBetPlaced}
       />
 

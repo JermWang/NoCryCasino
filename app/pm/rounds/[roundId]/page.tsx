@@ -17,7 +17,6 @@ import {
   Trophy,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { PmShell } from "@/components/pm/pm-shell"
 import { OutcomeCard } from "@/components/pm/outcome-card"
 import { CountdownPill, PayoutExplainer, FeeWaiverBadge } from "@/components/pm/pm-ui"
@@ -137,10 +136,10 @@ export default function PmRoundPage({ params }: { params: { roundId: string } })
     return (
       <PmShell maxWidth="6xl">
         <BackLink />
-        <div className="mb-6 h-32 animate-pulse rounded-2xl bg-card/40" />
+        <div className="pm-skeleton mb-6 h-32 rounded-2xl" />
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-72 animate-pulse rounded-2xl bg-card/40" />
+            <div key={i} className="pm-skeleton h-72 rounded-2xl" />
           ))}
         </div>
       </PmShell>
@@ -151,7 +150,7 @@ export default function PmRoundPage({ params }: { params: { roundId: string } })
     return (
       <PmShell maxWidth="6xl">
         <BackLink />
-        <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center text-red-400">
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-8 text-center text-red-400">
           Failed to load round: {error ?? "Not found"}
         </div>
       </PmShell>
@@ -166,21 +165,23 @@ export default function PmRoundPage({ params }: { params: { roundId: string } })
       <BackLink />
 
       {/* Hero */}
-      <div className="mb-6 overflow-hidden rounded-2xl border border-border/50 bg-card/40 backdrop-blur-sm">
+      <div className="pm-panel mb-6 overflow-hidden">
         <div className="flex flex-col gap-4 p-6 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">{round.market_type}</Badge>
-              <Badge variant={isOpen && !locked ? "default" : "outline"}>
+              <span className="pm-chip">{round.market_type}</span>
+              <span className={`pm-chip ${isOpen && !locked ? "" : "pm-chip-muted"}`}>
                 {locked && isOpen ? "LOCKED" : round.status}
-              </Badge>
-              <Badge variant="outline">Stake in {currency}</Badge>
-              {rakeBps > 0 && <Badge variant="outline">{(rakeBps / 100).toFixed(2).replace(/\.00$/, "")}% rake</Badge>}
+              </span>
+              <span className="pm-chip pm-chip-muted">Stake in {currency}</span>
+              {rakeBps > 0 && (
+                <span className="pm-chip pm-chip-muted">{(rakeBps / 100).toFixed(2).replace(/\.00$/, "")}% rake</span>
+              )}
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">
+            <h1 className="pm-display text-2xl text-foreground sm:text-3xl">
               {round.market_type.charAt(0) + round.market_type.slice(1).toLowerCase()} KOL Performance Round
             </h1>
-            <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+            <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">
               Bet YES or NO on each KOL. Winners split both pools pro-rata, minus rake.
             </p>
             <div className="mt-3">
@@ -214,7 +215,7 @@ export default function PmRoundPage({ params }: { params: { roundId: string } })
         </div>
 
         {/* Stat row */}
-        <div className="grid grid-cols-2 gap-px border-t border-border/40 bg-border/40 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-px border-t border-[var(--pm-line)] bg-[var(--pm-line)] md:grid-cols-4">
           <HeroStat icon={<TrendingUp className="h-4 w-4" />} label="Total volume" value={`${formatCompact(summary.totalPool)} ${currency}`} />
           <HeroStat icon={<Droplets className="h-4 w-4" />} label="Liquidity (YES/NO)" value={`${formatCompact(summary.yesPool)} / ${formatCompact(summary.noPool)}`} />
           <HeroStat icon={<Users className="h-4 w-4" />} label="Total bettors" value={String(summary.bettorCount)} />
@@ -223,7 +224,7 @@ export default function PmRoundPage({ params }: { params: { roundId: string } })
       </div>
 
       {!connected && (
-        <div className="mb-6 flex flex-col items-start justify-between gap-3 rounded-xl border border-border/40 bg-card/30 p-4 text-sm text-muted-foreground sm:flex-row sm:items-center">
+        <div className="mb-6 flex flex-col items-start justify-between gap-3 rounded-xl border border-[var(--pm-line)] bg-[rgba(4,8,6,0.5)] p-4 text-sm text-muted-foreground sm:flex-row sm:items-center">
           <span>
             Connect a wallet and deposit collateral on your{" "}
             <Link href="/pm/me" className="text-emerald-400 hover:underline">
@@ -241,7 +242,7 @@ export default function PmRoundPage({ params }: { params: { roundId: string } })
         {/* Outcomes */}
         <div>
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">
+            <h2 className="pm-display text-lg text-foreground">
               Markets <span className="text-muted-foreground">({outcomes.length})</span>
             </h2>
             {outcomes.length > 1 && (
@@ -251,7 +252,7 @@ export default function PmRoundPage({ params }: { params: { roundId: string } })
                   value={sort}
                   onChange={(e) => setSort(e.target.value as OutcomeSort)}
                   aria-label="Sort outcomes"
-                  className="h-9 cursor-pointer appearance-none rounded-lg border border-border/40 bg-card/30 pl-8 pr-8 text-sm font-medium backdrop-blur-sm focus:border-emerald-500/50 focus:outline-none"
+                  className="pm-input h-9 cursor-pointer appearance-none pl-8 pr-8 text-sm font-semibold"
                 >
                   <option value="volume">Top volume</option>
                   <option value="yes">Highest YES</option>
@@ -264,8 +265,8 @@ export default function PmRoundPage({ params }: { params: { roundId: string } })
           </div>
 
           {outcomes.length === 0 ? (
-            <div className="rounded-2xl border border-border/40 bg-card/30 p-12 text-center">
-              <h3 className="text-lg font-semibold">No outcomes yet</h3>
+            <div className="pm-panel p-12 text-center">
+              <h3 className="pm-display text-lg text-foreground">No outcomes yet</h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 Outcomes appear once the KOL lineup for this round is set.
               </p>
@@ -280,6 +281,7 @@ export default function PmRoundPage({ params }: { params: { roundId: string } })
                   bettingClosed={bettingClosed}
                   available={available}
                   rakeBps={rakeBps}
+                  feeWaived={connected && feeWaived ? true : undefined}
                   onBetPlaced={onBetPlaced}
                 />
               ))}
@@ -291,29 +293,40 @@ export default function PmRoundPage({ params }: { params: { roundId: string } })
         <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
           <PayoutExplainer rakeBps={rakeBps} />
 
-          {/* Leaders snapshot */}
+          {/* Leaderboard snapshot */}
           {summary.totalPool > 0 && (
-            <div className="rounded-2xl border border-border/50 bg-card/40 p-5 backdrop-blur-sm">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                <Trophy className="h-4 w-4 text-emerald-400" /> Most-traded markets
+            <div className="pm-panel p-5">
+              <h3 className="mb-3 flex items-center gap-2 pm-display text-sm">
+                <Trophy className="h-4 w-4 text-emerald-400" /> Leaderboard
               </h3>
-              <div className="space-y-2.5">
+              <div className="space-y-1">
                 {outcomes
                   .slice()
                   .sort((a, b) => Number(b.total_pool ?? 0) - Number(a.total_pool ?? 0))
                   .slice(0, 5)
-                  .map((o) => {
+                  .map((o, i) => {
                     const name =
                       o.kols?.display_name && o.kols.display_name.length > 0
                         ? o.kols.display_name
                         : shortAddress(o.kol_wallet_address)
                     const pct = impliedYesPct(o.yes_pool, o.no_pool, o.yes_prob)
                     return (
-                      <div key={o.outcome_id} className="flex items-center justify-between gap-2 text-sm">
-                        <span className="truncate font-medium">{name}</span>
+                      <div key={o.outcome_id} className="flex items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-sm">
+                        <span
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold tabular-nums ${
+                            i === 0
+                              ? "bg-[rgba(57,255,20,0.18)] text-emerald-300"
+                              : "bg-white/5 text-muted-foreground"
+                          }`}
+                        >
+                          {i + 1}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate font-semibold">{name}</span>
                         <span className="flex items-center gap-2 text-xs text-muted-foreground">
                           <span className="tabular-nums">{formatCompact(o.total_pool ?? 0)}</span>
-                          <span className={`tabular-nums font-semibold ${pct >= 50 ? "text-emerald-400" : "text-red-400"}`}>
+                          <span
+                            className={`tabular-nums font-bold ${pct >= 50 ? "pm-figure-glow text-emerald-400" : "text-red-400"}`}
+                          >
                             {pct}%
                           </span>
                         </span>
@@ -325,8 +338,8 @@ export default function PmRoundPage({ params }: { params: { roundId: string } })
           )}
 
           {/* Round meta */}
-          <div className="rounded-2xl border border-border/50 bg-card/40 p-5 text-xs text-muted-foreground backdrop-blur-sm">
-            <h3 className="mb-3 text-sm font-semibold text-foreground">Round details</h3>
+          <div className="pm-panel p-5 text-xs text-muted-foreground">
+            <h3 className="mb-3 pm-display text-sm text-foreground">Round details</h3>
             <dl className="space-y-2">
               <MetaRow label="Opens" value={new Date(round.start_ts).toLocaleString()} />
               <MetaRow label="Locks" value={new Date(round.lock_ts).toLocaleString()} />
@@ -351,12 +364,12 @@ function BackLink() {
 
 function HeroStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="bg-card/40 px-5 py-4">
+    <div className="bg-[rgba(4,8,6,0.55)] px-5 py-4">
       <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
         <span className="text-emerald-400">{icon}</span>
         {label}
       </div>
-      <div className="mt-1 text-base font-bold tabular-nums">{value}</div>
+      <div className="pm-figure mt-1 text-base text-foreground">{value}</div>
     </div>
   )
 }

@@ -8,6 +8,8 @@ export const runtime = "nodejs"
 
 type MarketType = "DAILY" | "WEEKLY" | "MONTHLY"
 
+type MarketKind = "TOP_1" | "TOP_N" | "PROFITABLE" | "HEAD_TO_HEAD"
+
 type Body = {
   market_type?: MarketType | "ALL"
   lock_ts?: string
@@ -18,6 +20,41 @@ type Body = {
   top_n?: number
   kol_selection?: "tracked_rank" | "active"
   min_recent_txs?: number
+  market_kind?: MarketKind
+  kind_params?: Record<string, any>
+}
+
+function normalizeMarketKind(raw: unknown): MarketKind {
+  const k = String(raw ?? "TOP_N").toUpperCase()
+  if (k === "TOP_1" || k === "PROFITABLE" || k === "HEAD_TO_HEAD") return k
+  return "TOP_N"
+}
+
+/** Human timeframe word for the round window, used in outcome question text. */
+function timeframeWord(market_type: MarketType): "daily" | "weekly" | "monthly" {
+  if (market_type === "WEEKLY") return "weekly"
+  if (market_type === "MONTHLY") return "monthly"
+  return "daily"
+}
+
+/**
+ * Build the per-outcome question text for a KOL, matching the round's kind.
+ *  - TOP_1:        "Will <KOL> be the #1 most profitable KOL this <timeframe>?"
+ *  - TOP_N:        "Will <KOL> finish Top <N> by SOL profit this <timeframe>?"
+ *  - PROFITABLE:   "Will <KOL> end this <timeframe> in profit?"
+ *  - HEAD_TO_HEAD: framed as <KOL> outperforming the configured opponent.
+ */
+function questionTextForKind(args: {
+  kind: MarketKind
+  name: string
+  top_n: number
+  timeframe: "daily" | "weekly" | "monthly"
+}): string {
+  const { kind, name, top_n, timeframe } = args
+  if (kind === "TOP_1") return `Will ${name} be the #1 most profitable KOL this ${timeframe}?`
+  if (kind === "PROFITABLE") return `Will ${name} end this ${timeframe} in profit?`
+  if (kind === "HEAD_TO_HEAD") return `Will ${name} be the more profitable KOL in this ${timeframe} head-to-head?`
+  return `Will ${name} finish Top ${top_n} by SOL profit this ${timeframe}?`
 }
 
 function nextDailyLockUtc(): string {
@@ -205,6 +242,17 @@ export async function POST(request: NextRequest) {
 
     const top_n = typeof body?.top_n === "number" && Number.isFinite(body.top_n) && body.top_n > 0 ? Math.min(25, Math.floor(body.top_n)) : 3
 
+    const market_kind = normalizeMarketKind(body?.market_kind)
+
+    // kind_params persists kind-specific config (e.g. {"n":3} for TOP_N,
+    // {"a","b"} for HEAD_TO_HEAD). For TOP_N we also pin n so settlement can
+    // read it straight off the round without re-deriving the default.
+    const kind_params: Record<string, any> =
+      body?.kind_params && typeof body.kind_params === "object" && !Array.isArray(body.kind_params) ? { ...body.kind_params } : {}
+    if (market_kind === "TOP_N" && !Number.isFinite(Number(kind_params.n))) {
+      kind_params.n = top_n
+    }
+
     const kolSelection = body?.kol_selection === "tracked_rank" || body?.kol_selection === "active"
       ? body.kol_selection
       : limit_kols <= 50
@@ -260,7 +308,7 @@ export async function POST(request: NextRequest) {
       if (!escrow_wallet_pubkey) return NextResponse.json({ error: "Missing escrow wallet addresses" }, { status: 500 })
 
       const inputs_hash = createHash("sha256")
-        .update(JSON.stringify({ market_type, startTs, lockTs, settleTs, escrow_wallet_pubkey, rake_bps, collateral_mint }))
+        .update(JSON.stringify({ market_type, startTs, lockTs, settleTs, escrow_wallet_pubkey, rake_bps, collateral_mint, market_kind, kind_params }))
         .digest("hex")
         .slice(0, 32)
 
@@ -276,6 +324,8 @@ export async function POST(request: NextRequest) {
           escrow_wallet_pubkey,
           rake_bps,
           inputs_hash,
+          market_kind,
+          kind_params,
         },
         { onConflict: "round_id" },
       )
@@ -285,13 +335,15 @@ export async function POST(request: NextRequest) {
       const selectedKolsRows = Array.isArray((selectedKols as any)?.kols) ? ((selectedKols as any).kols as any[]) : ((selectedKols as any) ?? [])
       const selectionFallback = typeof (selectedKols as any)?.selection_fallback === "string" ? String((selectedKols as any).selection_fallback) : null
 
+      const timeframe = timeframeWord(market_type)
+
       const outcomeRows = (selectedKolsRows ?? []).map((k: any) => {
         const wallet = String(k.wallet_address ?? "")
         const name = typeof k.display_name === "string" && k.display_name.length > 0 ? k.display_name : `${wallet.slice(0, 4)}…${wallet.slice(-4)}`
         return {
           round_id,
           kol_wallet_address: wallet,
-          question_text: `Will ${name} finish Top ${top_n} for ${market_type} round ending ${lockTs}?`,
+          question_text: questionTextForKind({ kind: market_kind, name, top_n, timeframe }),
           status: "ACTIVE",
         }
       })
@@ -305,6 +357,8 @@ export async function POST(request: NextRequest) {
       created.push({
         round_id,
         market_type,
+        market_kind,
+        kind_params,
         lock_ts: lockTs,
         collateral_mint,
         rake_bps,

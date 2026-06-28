@@ -65,15 +65,13 @@ export function PoolBar({
           )}
         </div>
       </div>
-      <div className={cn("flex w-full overflow-hidden rounded-full bg-muted/50", barHeight)}>
+      <div className={cn("pm-poolbar-track flex w-full rounded-full", barHeight)}>
         <div
-          className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
+          className="pm-poolbar-yes h-full transition-all duration-500"
           style={{ width: `${hasLiquidity ? yesPct : 50}%` }}
         />
-        <div className="h-full w-px bg-background/60" />
-        <div
-          className="h-full flex-1 bg-gradient-to-r from-rose-500 to-red-500 transition-all duration-500"
-        />
+        <div className="h-full w-px bg-black/70" />
+        <div className="pm-poolbar-no h-full flex-1 transition-all duration-500" />
       </div>
       {!hasLiquidity && (
         <div className="text-[11px] text-muted-foreground">No bets yet — be the first to set the line.</div>

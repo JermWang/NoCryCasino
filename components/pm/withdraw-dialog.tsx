@@ -11,8 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 import { base64FromBytes, buildPmMessage, formatAmount, makeNonce, mintLabel, SOL_MINT } from "./pm-client"
 import type { BalanceRow } from "./types"
 
@@ -131,20 +129,21 @@ export function WithdrawDialog({ open, onOpenChange, balances, initialMint, onWi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="border-border/60 bg-card/95 backdrop-blur-xl">
+      <DialogContent className="pm-theme border-[rgba(124,255,107,0.22)] bg-[#070b09]/95 backdrop-blur-xl">
         <DialogHeader>
-          <DialogTitle>Withdraw collateral</DialogTitle>
+          <span className="pm-kicker">No Cry Casino</span>
+          <DialogTitle className="pm-display text-foreground">Withdraw collateral</DialogTitle>
           <DialogDescription>Send your available balance to an external Solana wallet.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1.5 block text-sm font-medium">Currency</label>
+              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Currency</label>
               <select
                 value={mint}
                 onChange={(e) => setMint(e.target.value)}
-                className="w-full rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-sm focus:border-emerald-500/50 focus:outline-none"
+                className="pm-input px-3 py-2 text-sm"
               >
                 {mints.map((m) => (
                   <option key={m} value={m}>
@@ -154,19 +153,14 @@ export function WithdrawDialog({ open, onOpenChange, balances, initialMint, onWi
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium">Amount</label>
+              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Amount</label>
               <div className="relative">
                 <input
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   inputMode="decimal"
                   aria-invalid={overBalance}
-                  className={cn(
-                    "w-full rounded-lg border bg-background/40 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2",
-                    overBalance
-                      ? "border-red-500/50 focus:ring-red-500/20"
-                      : "border-border/60 focus:border-emerald-500/50 focus:ring-emerald-500/20",
-                  )}
+                  className="pm-input px-3 py-2 text-sm tabular-nums"
                 />
                 <button
                   type="button"
@@ -186,12 +180,12 @@ export function WithdrawDialog({ open, onOpenChange, balances, initialMint, onWi
           </div>
 
           <div>
-            <label className="mb-1.5 block text-sm font-medium">Destination address</label>
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Destination address</label>
             <input
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
               placeholder="Solana wallet address"
-              className="w-full rounded-lg border border-border/60 bg-background/40 px-3 py-2 font-mono text-xs focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              className="pm-input px-3 py-2 font-mono text-xs"
             />
           </div>
 
@@ -201,10 +195,15 @@ export function WithdrawDialog({ open, onOpenChange, balances, initialMint, onWi
             </div>
           )}
 
-          <Button onClick={submit} disabled={submitting || !amountValid || !destValid || overBalance} className="h-11 w-full gap-2 font-semibold">
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting || !amountValid || !destValid || overBalance}
+            className="pm-btn-green inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.6)]"
+          >
             {submitting ? "Requesting…" : "Request withdrawal"}
             {!submitting && <ArrowRight className="h-4 w-4" />}
-          </Button>
+          </button>
 
           <p className="text-center text-[11px] text-muted-foreground">
             Withdrawals are processed automatically. Reserved (in-play) balance can&apos;t be withdrawn until rounds settle.

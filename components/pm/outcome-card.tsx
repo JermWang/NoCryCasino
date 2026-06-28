@@ -17,6 +17,8 @@ type OutcomeCardProps = {
   bettingClosed?: boolean
   available?: number | null
   rakeBps?: number
+  // Whether the connected wallet qualifies for the $NOCRY fee waiver.
+  feeWaived?: boolean
   onBetPlaced?: () => void
 }
 
@@ -31,6 +33,7 @@ export function OutcomeCard({
   bettingClosed,
   available,
   rakeBps = 250,
+  feeWaived,
   onBetPlaced,
 }: OutcomeCardProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -60,10 +63,10 @@ export function OutcomeCard({
   }
 
   return (
-    <Card className="group gap-4 border-border/60 bg-card/50 p-5 backdrop-blur-sm transition-all hover:border-emerald-500/30 hover:shadow-lg hover:shadow-emerald-500/5">
+    <Card className="pm-panel pm-card-hover group gap-4 p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <KolAvatar src={outcome.kols?.avatar_url} name={name} size={40} className="h-10 w-10" />
+          <KolAvatar src={outcome.kols?.avatar_url} name={name} size={40} className="h-10 w-10" ring />
           <div className="min-w-0">
             <div className="truncate font-semibold leading-tight">{name}</div>
             {outcome.kols?.twitter_handle ? (
@@ -109,16 +112,16 @@ export function OutcomeCard({
               Cancelled
             </span>
           ) : (
-            <div className="text-right leading-none">
+            <div className="flex flex-col items-end leading-none">
               <div
                 className={cn(
-                  "text-xl font-bold tabular-nums",
-                  yesPct >= 50 ? "text-emerald-400" : "text-red-400",
+                  "pm-figure text-2xl",
+                  yesPct >= 50 ? "pm-figure-glow text-emerald-400" : "text-red-400",
                 )}
               >
                 {yesPct}%
               </div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">YES odds</div>
+              <div className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">% YES</div>
             </div>
           )}
         </div>
@@ -131,19 +134,19 @@ export function OutcomeCard({
       <PoolBar yesPool={yesPool} noPool={noPool} yesProb={outcome.yes_prob} />
 
       <div className="grid grid-cols-3 gap-2 text-xs">
-        <div className="rounded-lg border border-border/50 bg-background/30 px-2.5 py-2">
-          <div className="text-muted-foreground">YES pool</div>
-          <div className="mt-0.5 font-semibold tabular-nums text-emerald-400">{formatCompact(yesPool)}</div>
+        <div className="rounded-lg border border-[rgba(57,255,20,0.2)] bg-[rgba(57,255,20,0.05)] px-2.5 py-2">
+          <div className="uppercase tracking-wide text-muted-foreground">YES pool</div>
+          <div className="mt-0.5 font-bold tabular-nums text-emerald-400">{formatCompact(yesPool)}</div>
         </div>
-        <div className="rounded-lg border border-border/50 bg-background/30 px-2.5 py-2">
-          <div className="text-muted-foreground">NO pool</div>
-          <div className="mt-0.5 font-semibold tabular-nums text-red-400">{formatCompact(noPool)}</div>
+        <div className="rounded-lg border border-[rgba(255,77,77,0.2)] bg-[rgba(255,77,77,0.05)] px-2.5 py-2">
+          <div className="uppercase tracking-wide text-muted-foreground">NO pool</div>
+          <div className="mt-0.5 font-bold tabular-nums text-red-400">{formatCompact(noPool)}</div>
         </div>
-        <div className="rounded-lg border border-border/50 bg-background/30 px-2.5 py-2">
-          <div className="flex items-center gap-1 text-muted-foreground">
+        <div className="rounded-lg border border-border/50 bg-[rgba(4,8,6,0.5)] px-2.5 py-2">
+          <div className="flex items-center gap-1 uppercase tracking-wide text-muted-foreground">
             <TrendingUp className="h-3 w-3" /> Volume
           </div>
-          <div className="mt-0.5 font-semibold tabular-nums">{formatCompact(totalPool)}</div>
+          <div className="mt-0.5 font-bold tabular-nums">{formatCompact(totalPool)}</div>
         </div>
       </div>
 
@@ -166,17 +169,19 @@ export function OutcomeCard({
             type="button"
             disabled={disabled}
             onClick={() => openBet("YES")}
-            className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 py-2.5 text-sm font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label={`Bet YES on ${name} at ${yesPct} percent`}
+            className="pm-btn-green rounded-lg py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.6)]"
           >
-            Bet YES · {yesPct}%
+            YES · {yesPct}%
           </button>
           <button
             type="button"
             disabled={disabled}
             onClick={() => openBet("NO")}
-            className="rounded-lg border border-red-500/30 bg-red-500/10 py-2.5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label={`Bet NO on ${name} at ${100 - yesPct} percent`}
+            className="pm-btn-red-outline rounded-lg py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,77,77,0.5)]"
           >
-            Bet NO · {100 - yesPct}%
+            NO · {100 - yesPct}%
           </button>
         </div>
       )}
@@ -190,6 +195,7 @@ export function OutcomeCard({
         disabled={disabled}
         available={available}
         rakeBps={rakeBps}
+        feeWaived={feeWaived}
         onBetPlaced={onBetPlaced}
       />
     </Card>

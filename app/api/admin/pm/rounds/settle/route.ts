@@ -23,6 +23,55 @@ function windowKeyForMarketType(market_type: string): WindowKey {
   return "daily"
 }
 
+type MarketKind = "TOP_1" | "TOP_N" | "PROFITABLE" | "HEAD_TO_HEAD"
+
+function normalizeMarketKind(raw: unknown): MarketKind {
+  const k = String(raw ?? "TOP_N").toUpperCase()
+  if (k === "TOP_1" || k === "PROFITABLE" || k === "HEAD_TO_HEAD") return k
+  return "TOP_N"
+}
+
+/**
+ * Compute the winning wallet set for a round from its eligible leaderboard
+ * ranking, branching on the round's market_kind. `eligible` is already sorted
+ * by realized SOL PnL desc (eligible-first) by the snapshot builder, so kinds
+ * that need a top slice can take from the front directly.
+ *
+ * The realized-SOL-PnL field on each RankedKol is `profit_sol` (see
+ * lib/analytics/snapshot.ts → RankedKol). All kinds rank on that field.
+ *
+ * Returns null for kinds we deliberately do NOT settle here (HEAD_TO_HEAD),
+ * so the caller can record a skip without touching the RPC.
+ */
+function computeWinnersByKind(args: {
+  kind: MarketKind
+  kind_params: Record<string, any>
+  eligible: { wallet_address: string; profit_sol: number }[]
+  default_top_n: number
+}): { winners: string[] } | { skip: string } {
+  const { kind, kind_params, eligible, default_top_n } = args
+
+  if (kind === "TOP_1") {
+    return { winners: eligible.slice(0, 1).map((x) => x.wallet_address) }
+  }
+
+  if (kind === "PROFITABLE") {
+    return { winners: eligible.filter((x) => x.profit_sol > 0).map((x) => x.wallet_address) }
+  }
+
+  if (kind === "HEAD_TO_HEAD") {
+    // TODO(HEAD_TO_HEAD): settle from kind_params {a,b} — winner is whichever of
+    // the two wallets has the higher realized SOL PnL in `eligible`. Left as a
+    // noted skip for now so the other kinds settle without being blocked.
+    return { skip: "HEAD_TO_HEAD settlement not implemented yet" }
+  }
+
+  // TOP_N (default): N from kind_params.n, else the request-level top_n default.
+  const nRaw = Number(kind_params?.n)
+  const n = Number.isFinite(nRaw) && nRaw > 0 ? Math.floor(nRaw) : default_top_n
+  return { winners: eligible.slice(0, n).map((x) => x.wallet_address) }
+}
+
 let solPriceCache: { value: number; ts: number } | null = null
 
 async function getSolPriceUsd(): Promise<number> {
@@ -109,7 +158,7 @@ export async function POST(request: NextRequest) {
 
     let q = supabase
       .from("market_rounds")
-      .select("round_id, market_type, lock_ts, settle_ts, status")
+      .select("round_id, market_type, lock_ts, settle_ts, status, market_kind, kind_params")
       .in("status", ["LOCKED", "SETTLING"])
       .lte("settle_ts", settle_before)
       .order("settle_ts", { ascending: true })
@@ -164,7 +213,22 @@ export async function POST(request: NextRequest) {
       }
 
       const eligible = snapshot.rankings.filter((x) => x.is_eligible)
-      const winners = eligible.slice(0, top_n).map((x) => x.wallet_address)
+
+      const market_kind = normalizeMarketKind((r as any)?.market_kind)
+      const kind_params =
+        (r as any)?.kind_params && typeof (r as any).kind_params === "object" ? ((r as any).kind_params as Record<string, any>) : {}
+
+      const winnerResult = computeWinnersByKind({ kind: market_kind, kind_params, eligible, default_top_n: top_n })
+
+      if ("skip" in winnerResult) {
+        // Kind we don't settle here (HEAD_TO_HEAD). Record and move on without
+        // calling the RPC. The round keeps its current status (e.g. SETTLING if
+        // it was claimed) so a future handler can pick it up.
+        results.push({ round_id: r.round_id, window_key, closes_at, market_kind, skipped: true, reason: winnerResult.skip })
+        continue
+      }
+
+      const winners = winnerResult.winners
 
       if (!dry_run) {
         // Atomic parimutuel settlement: resolves every outcome YES iff its KOL is
@@ -178,13 +242,13 @@ export async function POST(request: NextRequest) {
         })
 
         if (settleErr) {
-          results.push({ round_id: r.round_id, window_key, closes_at, snapshot_hash: snapshot.snapshot_hash, winners, error: settleErr.message })
+          results.push({ round_id: r.round_id, window_key, closes_at, market_kind, snapshot_hash: snapshot.snapshot_hash, winners, error: settleErr.message })
           continue
         }
 
-        results.push({ round_id: r.round_id, window_key, closes_at, snapshot_hash: snapshot.snapshot_hash, winners, settlement: settleData })
+        results.push({ round_id: r.round_id, window_key, closes_at, market_kind, snapshot_hash: snapshot.snapshot_hash, winners, settlement: settleData })
       } else {
-        results.push({ round_id: r.round_id, window_key, closes_at, snapshot_hash: snapshot.snapshot_hash, winners, dry_run: true })
+        results.push({ round_id: r.round_id, window_key, closes_at, market_kind, snapshot_hash: snapshot.snapshot_hash, winners, dry_run: true })
       }
     }
 

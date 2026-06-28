@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #04070a; }
+  @keyframes ncc-marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+  @keyframes ncc-pulse { 0%,100% { opacity: 1; box-shadow: 0 0 8px rgba(57,255,20,.8); } 50% { opacity: .55; box-shadow: 0 0 14px rgba(57,255,20,.5); } }
+  @keyframes ncc-glow { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.18); } }
+  @keyframes ncc-toast { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes ncc-scan { 0% { background-position: 0 0; } 100% { background-position: 0 64px; } }
+  ::selection { background: rgba(57,255,20,.3); color: #fff; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: rgba(124,255,107,.18); border-radius: 10px; }
+  ::-webkit-scrollbar-track { background: #04070a; }
+</style>
+</helmet>
+
+<div style="min-height: 100vh; background: #04070a; color: #E6EFE8; font-family: 'Space Grotesk', system-ui, sans-serif; position: relative; overflow-x: hidden;">
+
+  <div style="position: fixed; inset: 0; pointer-events: none; z-index: 0; background-image: radial-gradient(120% 70% at 50% -10%, rgba(57,255,20,.06), rgba(0,0,0,0) 60%), radial-gradient(80% 50% at 50% 110%, rgba(57,255,20,.04), rgba(0,0,0,0) 55%);"></div>
+
+  <!-- ============ HEADER ============ -->
+  <header style="position: sticky; top: 0; z-index: 40; background: rgba(4,7,10,.82); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(124,255,107,.1);">
+    <div style="max-width: 1240px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; gap: 28px;">
+      <div onClick="{{ goHome }}" style="display: flex; align-items: center; gap: 11px; cursor: pointer;">
+        <img src="images/ncc-smiley.png" alt="No Cry Casino" style="width: 34px; height: 34px; border-radius: 8px; box-shadow: 0 0 18px rgba(57,255,20,.35);" />
+        <div style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 15px; letter-spacing: .04em; line-height: 1; color: #E6EFE8;">NO CRY<br/><span style="color: #7CFF6B;">CASINO</span></div>
+      </div>
+
+      <nav style="display: flex; align-items: center; gap: 26px; height: 100%;">
+        <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="3">
+          <div onClick="{{ n.onClick }}" style="{{ n.style }}" style-hover="color:#E6EFE8;">{{ n.label }}</div>
+        </sc-for>
+      </nav>
+
+      <div style="flex: 1;"></div>
+
+      <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 10px; border: 1px solid rgba(124,255,107,.12); background: rgba(124,255,107,.04); font-family: 'JetBrains Mono', monospace; font-size: 12px;">
+        <span style="width: 14px; height: 14px; border-radius: 50%; background: linear-gradient(135deg,#9945FF,#14F195); display: inline-block;"></span>
+        <span style="color: #84938A;">SOL</span>
+        <span style="color: #E6EFE8; font-weight: 500;">{{ solPrice }}</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 10px; border: 1px solid rgba(57,255,20,.28); background: rgba(57,255,20,.08); font-size: 12px; font-weight: 700; color: #7CFF6B;">
+        <span style="font-size: 11px;">◆</span> {{ nocryLabel }}
+      </div>
+
+      <div onClick="{{ onWallet }}" style="display: flex; flex-direction: column; align-items: flex-end; justify-content: center; padding: 7px 16px; border-radius: 10px; cursor: pointer; min-width: 132px; background: linear-gradient(180deg,#6CFF4A,#39FF14); color: #04130a; box-shadow: 0 6px 20px rgba(57,255,20,.28);" style-hover="filter:brightness(1.06);">
+        <span style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 13px; line-height: 1.1;">{{ walletLabel }}</span>
+        <sc-if value="{{ connected }}" hint-placeholder-val="{{ true }}"><span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; opacity: .65;">{{ walletSub }}</span></sc-if>
+      </div>
+    </div>
+
+    <!-- live ticker -->
+    <div style="overflow: hidden; border-top: 1px solid rgba(124,255,107,.07); background: rgba(0,0,0,.3);">
+      <div style="display: flex; width: max-content; animation: ncc-marquee 48s linear infinite;">
+        <div style="display: flex; align-items: center; padding: 7px 0;">
+          <sc-for list="{{ tickerRows }}" as="t" hint-placeholder-count="12">
+            <span style="display: inline-flex; align-items: center; gap: 7px; padding: 0 22px; font-family: 'JetBrains Mono', monospace; font-size: 12px; white-space: nowrap;"><span style="color: #7CFF6B; text-shadow: 0 0 8px rgba(124,255,107,.6);">◆</span><span style="color: #B7C2BA;">{{ t.name }}</span><span style="color: {{ t.color }}; font-weight: 500;">{{ t.val }}</span></span>
+          </sc-for>
+        </div>
+        <div style="display: flex; align-items: center; padding: 7px 0;" aria-hidden="true">
+          <sc-for list="{{ tickerRows }}" as="t" hint-placeholder-count="12">
+            <span style="display: inline-flex; align-items: center; gap: 7px; padding: 0 22px; font-family: 'JetBrains Mono', monospace; font-size: 12px; white-space: nowrap;"><span style="color: #7CFF6B; text-shadow: 0 0 8px rgba(124,255,107,.6);">◆</span><span style="color: #B7C2BA;">{{ t.name }}</span><span style="color: {{ t.color }}; font-weight: 500;">{{ t.val }}</span></span>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div style="position: relative; z-index: 1; max-width: 1240px; margin: 0 auto; padding: 0 24px;">
+
+    <!-- ============ HOME ============ -->
+    <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+    <section style="min-height: calc(100vh - 250px); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 48px 0 36px;">
+      <pre style="margin: 0; white-space: pre; font-family: 'JetBrains Mono', monospace; font-size: clamp(5px, .92vw, 11px); line-height: 1; letter-spacing: -.05em; color: #7CFF6B; text-shadow: 0 0 10px rgba(124,255,107,.8), 0 0 30px rgba(124,255,107,.5), 0 0 60px rgba(124,255,107,.3); animation: ncc-glow 2.6s ease-in-out infinite;" aria-label="No Cry Casino smiley">
+                      ██████████████████                      
+                ██████░░░░░░░░░░░░░░░░██████                
+            ████░░░░░░░░░░░░░░░░░░░░░░░░░░████            
+          ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██          
+        ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██        
+      ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██      
+    ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██    
+    ██░░░░░░████████░░░░░░░░░░░░░░░░████████░░░░░░░░██    
+  ██░░░░░░██████████░░░░░░░░░░░░░░██████████░░░░░░░░░░██  
+  ██░░░░████████████░░░░░░░░░░░░░░████████████░░░░░░░░██  
+  ██░░░░██████████░░░░░░░░░░░░░░░░░░██████████░░░░░░░░██  
+  ██░░░░░░████████░░░░░░░░░░░░░░░░░░████████░░░░░░░░░░██  
+  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██  
+  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██  
+  ██░░██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██░░██  
+  ██░░░░██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██░░░░██  
+    ██░░░░████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████░░░░██    
+    ██░░░░░░░░████████████████████████████░░░░░░░░░░██    
+      ██░░░░░░░░░░░░████████████████░░░░░░░░░░░░░░██      
+        ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██        
+          ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██          
+            ████░░░░░░░░░░░░░░░░░░░░░░░░░░████            
+                ██████░░░░░░░░░░░░░░░░██████                
+                      ██████████████████                      
+      </pre>
+      <pre style="margin: 1.6rem 0 0; white-space: pre; font-family: 'JetBrains Mono', monospace; font-size: clamp(7px, 1.25vw, 15px); line-height: 1.1; letter-spacing: .05em; color: #7CFF6B; text-shadow: 0 0 8px rgba(124,255,107,.7), 0 0 24px rgba(124,255,107,.4), 0 0 48px rgba(124,255,107,.2); animation: ncc-glow 2.6s ease-in-out infinite .5s;" aria-label="No Cry Casino">
+██  ██  █████      █████ █████  ██  ██
+███ ██ ██   ██    ██     ██  ██  ████ 
+██████ ██   ██    ██     █████    ██  
+██ ███ ██   ██    ██     ██  ██   ██  
+██  ██  █████      █████ ██  ██   ██  
+
+ ████   ████  ████  ██ ██  ██  ████  
+██     ██  ██ ██    ██ ███ ██ ██  ██ 
+██     ██████ ████  ██ ██████ ██  ██ 
+██     ██  ██    ██ ██ ██ ███ ██  ██ 
+ ████  ██  ██ ████  ██ ██  ██  ████  
+      </pre>
+      <div style="margin-top: 1.7rem; font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: .34em; color: rgba(124,255,107,.5);">LIVE KOL TRACKING • P2P MARKETS</div>
+      <div style="display: flex; gap: 14px; margin-top: 38px; flex-wrap: wrap; justify-content: center;">
+        <div onClick="{{ goMarkets }}" style="display: inline-flex; align-items: center; gap: 9px; padding: 14px 30px; border-radius: 12px; cursor: pointer; font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; background: linear-gradient(180deg,#6CFF4A,#39FF14); color: #04130a; box-shadow: 0 12px 34px rgba(57,255,20,.3), inset 0 1px 0 rgba(255,255,255,.4);" style-hover="filter:brightness(1.07);transform:translateY(-1px);">
+          Enter Markets →
+        </div>
+        <div onClick="{{ goLeaderboard }}" style="display: inline-flex; align-items: center; gap: 9px; padding: 14px 28px; border-radius: 12px; cursor: pointer; font-weight: 700; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; border: 1px solid rgba(124,255,107,.22); color: #7CFF6B; background: rgba(124,255,107,.04);" style-hover="background:rgba(124,255,107,.1);">
+          Leaderboard
+        </div>
+      </div>
+    </section>
+
+    <!-- featured markets -->
+    <section style="padding: 28px 0 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;">
+        <h2 style="font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: .14em; text-transform: uppercase; color: #B7C2BA; margin: 0; display: flex; align-items: center; gap: 10px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #39FF14; animation: ncc-pulse 1.8s ease-in-out infinite;"></span>Hottest markets right now</h2>
+        <div onClick="{{ goMarkets }}" style="font-size: 13px; font-weight: 600; color: #7CFF6B; cursor: pointer;" style-hover="text-decoration:underline;">All markets →</div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+        <sc-for list="{{ featured }}" as="mk" hint-placeholder-count="3">
+          <dc-import name="Market Card" mk="{{ mk }}" hint-size="100%,250px"></dc-import>
+        </sc-for>
+      </div>
+    </section>
+    </sc-if>
+
+    <!-- ============ MARKETS LIST ============ -->
+    <sc-if value="{{ isMarkets }}" hint-placeholder-val="{{ true }}">
+    <section style="padding: 36px 0 16px;">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+        <div>
+          <h1 style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 34px; letter-spacing: -.01em; margin: 0 0 6px;">Markets</h1>
+          <p style="color: #84938A; font-size: 14px; margin: 0;">Parimutuel YES/NO markets on KOL performance · <span style="color: #7CFF6B;">{{ marketsCount }}</span></p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <sc-for list="{{ filters }}" as="f" hint-placeholder-count="4">
+            <div onClick="{{ f.onClick }}" style="{{ f.style }}">{{ f.label }}</div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+        <sc-for list="{{ marketsView }}" as="mk" hint-placeholder-count="9">
+          <dc-import name="Market Card" mk="{{ mk }}" hint-size="100%,250px"></dc-import>
+        </sc-for>
+      </div>
+    </section>
+    </sc-if>
+
+    <!-- ============ MARKET DETAIL ============ -->
+    <sc-if value="{{ isMarket }}" hint-placeholder-val="{{ true }}">
+    <section style="padding: 28px 0 16px;">
+      <div onClick="{{ goMarkets }}" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #84938A; cursor: pointer; margin-bottom: 22px;" style-hover="color:#7CFF6B;">← Back to markets</div>
+      <div style="display: grid; grid-template-columns: 1fr 380px; gap: 28px; align-items: start;">
+
+        <!-- left: market info -->
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+          <div style="background: linear-gradient(180deg,rgba(124,255,107,.025),rgba(0,0,0,0)),#0a0f0c; border: 1px solid rgba(124,255,107,.1); border-radius: 18px; padding: 28px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 18px;">
+              <span style="display: inline-flex; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .06em; border: 1px solid; {{ det.typeStyle }}">{{ det.type }}</span>
+              <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: {{ det.sparkColor }};"><span style="width: 6px; height: 6px; border-radius: 50%; background: #39FF14; animation: ncc-pulse 1.8s ease-in-out infinite;"></span>{{ det.lockLabel }}</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 18px;">
+              <div style="width: 64px; height: 64px; border-radius: 14px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 20px; color: #7CFF6B; background: radial-gradient(circle at 30% 30%, rgba(57,255,20,.2), rgba(8,14,10,.9)); border: 1px solid rgba(57,255,20,.3); box-shadow: 0 0 22px rgba(57,255,20,.18);">{{ kolInitials }}</div>
+              <div style="flex: 1; min-width: 0;">
+                <h1 style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 26px; line-height: 1.12; margin: 0 0 8px; color: #E6EFE8;">{{ det.question }}</h1>
+                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #84938A;"><span style="color: #B7C2BA; font-weight: 600;">{{ kolName }}</span><span style="font-family: 'JetBrains Mono', monospace;">{{ kolHandle }}</span></div>
+                <p style="font-size: 13px; color: #6E7C72; margin: 10px 0 0;">{{ det.sub }}</p>
+              </div>
+            </div>
+
+            <!-- big odds -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 24px;">
+              <div style="border-radius: 14px; padding: 18px; border: 1px solid rgba(57,255,20,.22); background: rgba(57,255,20,.06);">
+                <div style="font-size: 12px; font-weight: 700; letter-spacing: .1em; color: #5CFF7A;">YES</div>
+                <div style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 40px; line-height: 1; color: #39FF14; text-shadow: 0 0 22px rgba(57,255,20,.4); margin-top: 4px;">{{ det.yesLabel }}</div>
+                <div style="font-size: 12px; color: #84938A; margin-top: 4px;">{{ bet.yesMult }} payout</div>
+              </div>
+              <div style="border-radius: 14px; padding: 18px; border: 1px solid rgba(255,94,94,.22); background: rgba(255,94,94,.05);">
+                <div style="font-size: 12px; font-weight: 700; letter-spacing: .1em; color: #FF7676;">NO</div>
+                <div style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 40px; line-height: 1; color: #FF5E5E; margin-top: 4px;">{{ det.noLabel }}</div>
+                <div style="font-size: 12px; color: #84938A; margin-top: 4px;">{{ bet.noMult }} payout</div>
+              </div>
+            </div>
+
+            <!-- pool bar -->
+            <div style="margin-top: 18px;">
+              <div style="height: 10px; border-radius: 999px; overflow: hidden; display: flex; background: rgba(255,255,255,.05);">
+                <div style="{{ det.yesBarStyle }}; background: linear-gradient(90deg,#39FF14,#5CFF7A); box-shadow: 0 0 14px rgba(57,255,20,.5); transition: width .5s ease;"></div>
+                <div style="{{ det.noBarStyle }}; background: linear-gradient(90deg,#FF5E5E,#FF3B3B); transition: width .5s ease;"></div>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px;"><span style="color: #5CFF7A;">YES {{ det.yesLabel }}</span><span style="color: #FF7676;">NO {{ det.noLabel }}</span></div>
+            </div>
+
+            <!-- stats row -->
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 22px;">
+              <div style="border: 1px solid rgba(124,255,107,.1); background: rgba(0,0,0,.25); border-radius: 12px; padding: 13px 15px;">
+                <div style="font-size: 11px; color: #84938A; letter-spacing: .06em; text-transform: uppercase;">Volume</div>
+                <div style="font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 18px; margin-top: 3px; color: #E6EFE8;">{{ detTotalLabel }}</div>
+                <div style="font-size: 11px; color: #6E7C72; margin-top: 1px;">{{ detVolumeUsd }}</div>
+              </div>
+              <div style="border: 1px solid rgba(124,255,107,.1); background: rgba(0,0,0,.25); border-radius: 12px; padding: 13px 15px;">
+                <div style="font-size: 11px; color: #84938A; letter-spacing: .06em; text-transform: uppercase;">Bettors</div>
+                <div style="font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 18px; margin-top: 3px; color: #E6EFE8;">{{ det.bettorsLabel }}</div>
+                <div style="font-size: 11px; color: #6E7C72; margin-top: 1px;">active wallets</div>
+              </div>
+              <div style="border: 1px solid rgba(124,255,107,.1); background: rgba(0,0,0,.25); border-radius: 12px; padding: 13px 15px;">
+                <div style="font-size: 11px; color: #84938A; letter-spacing: .06em; text-transform: uppercase;">Closes</div>
+                <div style="font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 18px; margin-top: 3px; color: #E6EFE8;">{{ det.lockLabel }}</div>
+                <div style="font-size: 11px; color: #6E7C72; margin-top: 1px;">then settles</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- how payouts work -->
+          <div style="background: linear-gradient(180deg,rgba(124,255,107,.025),rgba(0,0,0,0)),#0a0f0c; border: 1px solid rgba(124,255,107,.1); border-radius: 18px; padding: 24px;">
+            <h3 style="font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 16px; color: #B7C2BA;">How payouts work</h3>
+            <div style="display: flex; flex-direction: column; gap: 14px;">
+              <div style="display: flex; gap: 13px; align-items: flex-start;"><span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(57,255,20,.12); color: #7CFF6B; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">1</span><span style="font-size: 14px; color: #9FB0A4; line-height: 1.5;">Every bet flows into the <span style="color: #5CFF7A; font-weight: 600;">YES</span> or <span style="color: #FF7676; font-weight: 600;">NO</span> pool. The split is the live implied odds.</span></div>
+              <div style="display: flex; gap: 13px; align-items: flex-start;"><span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(57,255,20,.12); color: #7CFF6B; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">2</span><span style="font-size: 14px; color: #9FB0A4; line-height: 1.5;">At settlement the winning side splits <span style="color: #E6EFE8; font-weight: 600;">both pools</span> pro-rata to stake. Bigger stake, bigger share.</span></div>
+              <div style="display: flex; gap: 13px; align-items: flex-start;"><span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(57,255,20,.12); color: #7CFF6B; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">3</span><span style="font-size: 14px; color: #9FB0A4; line-height: 1.5;">A 2.5% rake applies to winnings only — <span style="color: #7CFF6B; font-weight: 600;">waived entirely</span> for 10k+ $NOCRY holders.</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- right: BET SLIP (sticky) -->
+        <div style="position: sticky; top: 130px; display: flex; flex-direction: column; gap: 16px;">
+          <div style="background: linear-gradient(180deg,rgba(124,255,107,.04),rgba(0,0,0,0)),#0b110d; border: 1px solid rgba(124,255,107,.16); border-radius: 18px; padding: 22px; box-shadow: 0 20px 50px rgba(0,0,0,.5);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+              <h3 style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 16px; letter-spacing: .04em; margin: 0; color: #E6EFE8;">BET SLIP</h3>
+              <span style="font-size: 11px; color: #84938A; font-family: 'JetBrains Mono', monospace;">Balance {{ balanceLabel }}</span>
+            </div>
+
+            <!-- YES / NO toggle -->
+            <div style="display: flex; gap: 10px; margin-bottom: 18px;">
+              <div onClick="{{ bet.setYes }}" style="{{ bet.sideTabYes }}">
+                <div style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 15px; color: #39FF14;">YES</div>
+                <div style="font-size: 12px; color: #84938A; margin-top: 3px;">{{ bet.yesOddLabel }} · {{ bet.yesMult }}</div>
+              </div>
+              <div onClick="{{ bet.setNo }}" style="{{ bet.sideTabNo }}">
+                <div style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 15px; color: #FF5E5E;">NO</div>
+                <div style="font-size: 12px; color: #84938A; margin-top: 3px;">{{ bet.noOddLabel }} · {{ bet.noMult }}</div>
+              </div>
+            </div>
+
+            <!-- stake input -->
+            <label style="font-size: 12px; color: #84938A; letter-spacing: .06em; text-transform: uppercase; display: block; margin-bottom: 8px;">Your stake</label>
+            <div style="position: relative; margin-bottom: 10px;">
+              <input value="{{ bet.stake }}" onInput="{{ bet.onStake }}" placeholder="0.00" inputMode="decimal" style="width: 100%; background: rgba(4,8,6,.7); border: 1px solid rgba(124,255,107,.2); border-radius: 12px; color: #E6EFE8; font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 22px; padding: 14px 60px 14px 16px; outline: none;" style-focus="border-color:rgba(57,255,20,.6);box-shadow:0 0 0 3px rgba(57,255,20,.14);" />
+              <span style="position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 13px; font-weight: 600; color: #7CFF6B;">SOL</span>
+            </div>
+            <div style="display: flex; gap: 7px; margin-bottom: 18px;">
+              <div onClick="{{ bet.q05 }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid rgba(124,255,107,.12); color: #9FB0A4;" style-hover="background:rgba(124,255,107,.08);">0.5</div>
+              <div onClick="{{ bet.q1 }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid rgba(124,255,107,.12); color: #9FB0A4;" style-hover="background:rgba(124,255,107,.08);">1</div>
+              <div onClick="{{ bet.q5 }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid rgba(124,255,107,.12); color: #9FB0A4;" style-hover="background:rgba(124,255,107,.08);">5</div>
+              <div onClick="{{ bet.qMax }}" style="flex: 1; text-align: center; padding: 8px 0; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid rgba(124,255,107,.12); color: #9FB0A4;" style-hover="background:rgba(124,255,107,.08);">MAX</div>
+            </div>
+
+            <!-- payout summary -->
+            <div style="border-top: 1px dashed rgba(124,255,107,.14); padding-top: 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px;">
+              <div style="display: flex; justify-content: space-between; font-size: 13px;"><span style="color: #84938A;">Odds multiplier</span><span style="color: {{ bet.sideColor }}; font-weight: 700; font-family: 'JetBrains Mono', monospace;">{{ bet.multLabel }}</span></div>
+              <div style="display: flex; justify-content: space-between; font-size: 13px;"><span style="color: #84938A;">Est. payout</span><span style="color: #E6EFE8; font-weight: 600; font-family: 'JetBrains Mono', monospace;">{{ bet.payoutLabel }}</span></div>
+              <div style="display: flex; justify-content: space-between; font-size: 13px;"><span style="color: #84938A;">To win</span><span style="color: #5CFF7A; font-weight: 700; font-family: 'JetBrains Mono', monospace;">{{ bet.toWinLabel }}</span></div>
+              <div style="display: flex; justify-content: space-between; font-size: 13px;"><span style="color: #84938A;">Fee (rake)</span><span style="color: {{ bet.sideColor }}; font-weight: 600; font-family: 'JetBrains Mono', monospace;">{{ bet.feeLabel }}</span></div>
+            </div>
+
+            <div onClick="{{ bet.onPlace }}" style="{{ bet.ctaStyle }}" style-hover="filter:brightness(1.05);">{{ bet.ctaLabel }}</div>
+          </div>
+
+          <!-- fee waiver banner -->
+          <sc-if value="{{ feeWaived }}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; align-items: center; gap: 12px; border-radius: 14px; padding: 14px 16px; border: 1px solid rgba(57,255,20,.4); background: rgba(57,255,20,.08);">
+              <span style="width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: rgba(57,255,20,.16); font-size: 16px;">⚡</span>
+              <div><div style="font-weight: 800; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: #7CFF6B; text-shadow: 0 0 10px rgba(57,255,20,.4);">0 fees active</div><div style="font-size: 12px; color: #84938A; margin-top: 1px;">Your $NOCRY balance waives all rake.</div></div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <!-- related markets -->
+      <div style="margin-top: 36px;">
+        <h3 style="font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: #B7C2BA; margin: 0 0 16px;">Related markets</h3>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+          <sc-for list="{{ related }}" as="mk" hint-placeholder-count="3">
+            <dc-import name="Market Card" mk="{{ mk }}" hint-size="100%,250px"></dc-import>
+          </sc-for>
+        </div>
+      </div>
+    </section>
+    </sc-if>
+
+    <!-- ============ LEADERBOARD ============ -->
+    <sc-if value="{{ isLeaderboard }}" hint-placeholder-val="{{ true }}">
+    <section style="padding: 36px 0 16px;">
+      <div style="margin-bottom: 24px;">
+        <h1 style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 34px; letter-spacing: -.01em; margin: 0 0 6px;">KOL Leaderboard</h1>
+        <p style="color: #84938A; font-size: 14px; margin: 0;">Realized PnL this week · synced live from <span style="color: #7CFF6B; font-family: 'JetBrains Mono', monospace;">kolscan.io</span></p>
+      </div>
+      <div style="background: linear-gradient(180deg,rgba(124,255,107,.02),rgba(0,0,0,0)),#0a0f0c; border: 1px solid rgba(124,255,107,.1); border-radius: 18px; overflow: hidden;">
+        <div style="display: grid; grid-template-columns: 56px 1fr 120px 150px 110px 60px; gap: 12px; padding: 14px 22px; border-bottom: 1px solid rgba(124,255,107,.1); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #6E7C72;">
+          <div>Rank</div><div>Trader</div><div style="text-align: right;">PnL (7d)</div><div>Win rate</div><div style="text-align: right;">Volume</div><div style="text-align: center;">7d</div>
+        </div>
+        <sc-for list="{{ leaders }}" as="l" hint-placeholder-count="12">
+          <div onClick="{{ l.onClick }}" style="display: grid; grid-template-columns: 56px 1fr 120px 150px 110px 60px; gap: 12px; padding: 15px 22px; align-items: center; border-bottom: 1px solid rgba(124,255,107,.05); cursor: pointer; background: {{ l.rankBg }};" style-hover="background:rgba(124,255,107,.05);">
+            <div style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 17px; color: {{ l.rankColor }};">{{ l.rank }}</div>
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+              <div style="width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 13px; color: #7CFF6B; background: radial-gradient(circle at 30% 30%, rgba(57,255,20,.18), rgba(8,14,10,.9)); border: 1px solid rgba(57,255,20,.22);">{{ l.initials }}</div>
+              <div style="min-width: 0;"><div style="font-weight: 700; font-size: 15px; color: #E6EFE8;">{{ l.name }}</div><div style="font-size: 12px; color: #6E7C72; font-family: 'JetBrains Mono', monospace;">{{ l.handle }}</div></div>
+            </div>
+            <div style="text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 15px; color: #5CFF7A;">{{ l.pnlLabel }}</div>
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <div style="flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,.06); overflow: hidden;"><div style="{{ l.winBarStyle }}; height: 100%; background: linear-gradient(90deg,#39FF14,#5CFF7A); border-radius: 999px;"></div></div>
+              <span style="font-size: 12px; color: #9FB0A4; font-family: 'JetBrains Mono', monospace; width: 30px;">{{ l.winLabel }}</span>
+            </div>
+            <div style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #B7C2BA;">{{ l.volLabel }}</div>
+            <div style="text-align: center; font-size: 12px; font-weight: 700; color: {{ l.deltaColor }};">{{ l.deltaLabel }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+    </sc-if>
+
+    <!-- ============ PORTFOLIO ============ -->
+    <sc-if value="{{ isPortfolio }}" hint-placeholder-val="{{ true }}">
+    <section style="padding: 36px 0 16px;">
+      <h1 style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 34px; letter-spacing: -.01em; margin: 0 0 22px;">Portfolio</h1>
+
+      <!-- balance + stats -->
+      <div style="display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr; gap: 16px; margin-bottom: 28px;">
+        <div style="background: linear-gradient(135deg,rgba(57,255,20,.1),rgba(10,15,12,.6)); border: 1px solid rgba(57,255,20,.24); border-radius: 18px; padding: 22px;">
+          <div style="font-size: 12px; color: #84938A; letter-spacing: .08em; text-transform: uppercase;">Wallet balance</div>
+          <div style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 30px; color: #E6EFE8; margin-top: 6px;">{{ pfBalance }}</div>
+          <div style="font-size: 13px; color: #84938A; margin-top: 2px;">{{ pfBalanceUsd }}</div>
+          <div style="display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; padding: 5px 11px; border-radius: 999px; border: 1px solid rgba(57,255,20,.3); background: rgba(57,255,20,.1); font-size: 11px; font-weight: 700; color: #7CFF6B;">⚡ {{ pfNocry }} · 0 fees</div>
+        </div>
+        <div style="background: #0a0f0c; border: 1px solid rgba(124,255,107,.1); border-radius: 18px; padding: 22px;">
+          <div style="font-size: 12px; color: #84938A; letter-spacing: .08em; text-transform: uppercase;">Net P/L</div>
+          <div style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 26px; margin-top: 6px; color: {{ pfPnlColor }};">{{ pfPnl }}</div>
+          <div style="font-size: 12px; color: #6E7C72; margin-top: 4px;">settled bets</div>
+        </div>
+        <div style="background: #0a0f0c; border: 1px solid rgba(124,255,107,.1); border-radius: 18px; padding: 22px;">
+          <div style="font-size: 12px; color: #84938A; letter-spacing: .08em; text-transform: uppercase;">Win rate</div>
+          <div style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 26px; margin-top: 6px; color: #E6EFE8;">{{ pfWin }}</div>
+          <div style="font-size: 12px; color: #6E7C72; margin-top: 4px;">{{ pfWagered }} wagered</div>
+        </div>
+        <div style="background: #0a0f0c; border: 1px solid rgba(124,255,107,.1); border-radius: 18px; padding: 22px;">
+          <div style="font-size: 12px; color: #84938A; letter-spacing: .08em; text-transform: uppercase;">Open bets</div>
+          <div style="font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 26px; margin-top: 6px; color: #7CFF6B;">{{ pfOpen }}</div>
+          <div style="font-size: 12px; color: #6E7C72; margin-top: 4px;">awaiting settlement</div>
+        </div>
+      </div>
+
+      <!-- tabs -->
+      <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+        <sc-for list="{{ pfTabs }}" as="t" hint-placeholder-count="2">
+          <div onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</div>
+        </sc-for>
+      </div>
+
+      <!-- bets list -->
+      <div style="background: #0a0f0c; border: 1px solid rgba(124,255,107,.1); border-radius: 18px; overflow: hidden;">
+        <sc-if value="{{ pfEmpty }}" hint-placeholder-val="{{ true }}">
+          <div style="padding: 56px; text-align: center; color: #6E7C72;"><div style="font-size: 15px;">No bets here yet.</div><div onClick="{{ goMarkets }}" style="margin-top: 12px; display: inline-block; color: #7CFF6B; font-weight: 600; cursor: pointer;">Browse markets →</div></div>
+        </sc-if>
+        <sc-for list="{{ pfBets }}" as="bt" hint-placeholder-count="3">
+          <div onClick="{{ bt.onClick }}" style="display: flex; align-items: center; gap: 16px; padding: 17px 22px; border-bottom: 1px solid rgba(124,255,107,.05); cursor: pointer;" style-hover="background:rgba(124,255,107,.04);">
+            <div style="width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 13px; color: #7CFF6B; background: radial-gradient(circle at 30% 30%, rgba(57,255,20,.18), rgba(8,14,10,.9)); border: 1px solid rgba(57,255,20,.22);">{{ bt.initials }}</div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-weight: 600; font-size: 15px; color: #E6EFE8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ bt.question }}</div>
+              <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 12px;"><span style="font-weight: 700; color: {{ bt.sideColor }};">{{ bt.side }}</span><span style="color: #6E7C72;">{{ bt.stakeLabel }}</span><span style="color: #58655B;">·</span><span style="color: #6E7C72;">{{ bt.placed }}</span></div>
+            </div>
+            <span style="padding: 4px 11px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em; {{ bt.statusStyle }}">{{ bt.status }}</span>
+            <div style="text-align: right; width: 130px;"><div style="font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 15px; color: {{ bt.rightColor }};">{{ bt.rightLabel }}</div><div style="font-size: 11px; color: #6E7C72;">{{ bt.rightSub }}</div></div>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+    </sc-if>
+
+  </div>
+
+  <!-- ============ FOOTER TRUST STRIP ============ -->
+  <footer style="position: relative; z-index: 1; margin-top: 40px; border-top: 1px solid rgba(124,255,107,.1); background: rgba(4,8,6,.5);">
+    <div style="max-width: 1240px; margin: 0 auto; padding: 22px 24px; display: flex; align-items: center; justify-content: center; gap: 40px; flex-wrap: wrap;">
+      <span style="display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #84938A;"><span style="color: #39FF14;">◆</span> Real markets</span>
+      <span style="display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #84938A;"><span style="color: #39FF14;">◆</span> Live odds</span>
+      <span style="display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #84938A;"><span style="color: #39FF14;">◆</span> Non-custodial</span>
+      <span style="display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #84938A;"><span style="color: #39FF14;">◆</span> Settles on-chain</span>
+      <span style="display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #84938A;"><span style="width: 13px; height: 13px; border-radius: 50%; background: linear-gradient(135deg,#9945FF,#14F195); display: inline-block;"></span> Solana native</span>
+    </div>
+  </footer>
+
+  <!-- ============ TOAST ============ -->
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ true }}">
+    <div style="position: fixed; bottom: 26px; right: 26px; z-index: 80; display: flex; align-items: center; gap: 12px; padding: 15px 20px; border-radius: 13px; background: #070b09; border: 1px solid rgba(57,255,20,.3); box-shadow: 0 16px 44px rgba(0,0,0,.6), 0 0 26px rgba(57,255,20,.16); animation: ncc-toast .28s cubic-bezier(.2,.9,.3,1);">
+      <span style="width: 9px; height: 9px; border-radius: 50%; background: #39FF14; box-shadow: 0 0 12px rgba(57,255,20,.7);"></span>
+      <span style="font-size: 14px; font-weight: 600; color: #E6EFE8;">{{ toast }}</span>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = {
+    screen: 'home',
+    activeId: 'm1',
+    connected: false,
+    balance: 12.84,
+    nocry: 18500,
+    filter: 'ALL',
+    side: 'YES',
+    stake: '',
+    pfTab: 'active',
+    toast: null,
+    bets: [
+      { id: 'b1', marketId: 'm4', question: 'Cented green today?', kolId: 'cented', side: 'YES', stake: 2.0, mult: 1.37, placed: '12m ago', status: 'ACTIVE' },
+      { id: 'b2', marketId: 'm1', question: 'Ansem #1 on the weekly leaderboard?', kolId: 'ansem', side: 'YES', stake: 1.5, mult: 1.38, placed: '1h ago', status: 'ACTIVE' },
+      { id: 'b3', marketId: 'm2', question: 'Cupsey Top-3 yesterday?', kolId: 'cupsey', side: 'YES', stake: 1.0, mult: 2.34, placed: '1d ago', status: 'WON', payout: 2.34 },
+      { id: 'b4', marketId: 'm3', question: 'Euris cleared 1,000 SOL last week?', kolId: 'euris', side: 'YES', stake: 1.2, mult: 1.71, placed: '6d ago', status: 'WON', payout: 2.05 },
+      { id: 'b5', marketId: 'm6', question: 'Kreo cleared 200 SOL?', kolId: 'kreo', side: 'NO', stake: 0.8, mult: 1.9, placed: '2d ago', status: 'LOST', payout: 0 },
+    ],
+  };
+
+  KOLS = {
+    ansem:     { name: 'Ansem',     handle: '@blknoiz06',  initials: 'AN', pnl: 1842.6, win: 67, vol: 38400, trades: 412, delta: 0 },
+    cupsey:    { name: 'Cupsey',    handle: '@Cupseyy',    initials: 'CU', pnl: 1310.2, win: 71, vol: 29100, trades: 388, delta: 1 },
+    euris:     { name: 'Euris',     handle: '@Euris_JT',   initials: 'EU', pnl: 1180.4, win: 63, vol: 24700, trades: 256, delta: -1 },
+    cented:    { name: 'Cented',    handle: '@Cented7',    initials: 'CE', pnl: 904.8,  win: 59, vol: 19800, trades: 301, delta: 2 },
+    mitch:     { name: 'Mitch',     handle: '@idrawline',  initials: 'MI', pnl: 786.3,  win: 64, vol: 17200, trades: 198, delta: 0 },
+    kreo:      { name: 'Kreo',      handle: '@0xKreo',     initials: 'KR', pnl: 612.5,  win: 58, vol: 14300, trades: 176, delta: 3 },
+    waddles:   { name: 'Waddles',   handle: '@waddles_eth',initials: 'WA', pnl: 540.9,  win: 55, vol: 12900, trades: 221, delta: -2 },
+    sebastian: { name: 'Sebastian', handle: '@Saupy',      initials: 'SE', pnl: 498.1,  win: 61, vol: 11400, trades: 142, delta: 1 },
+    pow:       { name: 'Pow',       handle: '@traderpow',  initials: 'PO', pnl: 432.7,  win: 57, vol: 10200, trades: 167, delta: -1 },
+    gake:      { name: 'Gake',      handle: '@gakeYZ',     initials: 'GA', pnl: 388.2,  win: 60, vol: 9100,  trades: 133, delta: 4 },
+    jijo:      { name: 'Jijo',      handle: '@jijo_exe',   initials: 'JI', pnl: 301.5,  win: 53, vol: 7800,  trades: 119, delta: 0 },
+    loopier:   { name: 'Loopier',   handle: '@Loopierr',   initials: 'LO', pnl: 268.9,  win: 56, vol: 6900,  trades: 98,  delta: -3 },
+  };
+
+  MARKETS = [
+    { id: 'm1',  type: 'WEEKLY',  kolId: 'ansem',     question: 'Ansem #1 on the weekly leaderboard?', sub: 'Settles Sun 23:59 UTC by realized PnL',  yesPool: 842, noPool: 318, bettors: 1240, lockMin: 192, seed: [12,18,15,22,28,24,31,29,35,33,40,44] },
+    { id: 'm2',  type: 'DAILY',   kolId: 'cupsey',    question: 'Cupsey finishes Top-3 today?',         sub: 'Settles 00:00 UTC by daily PnL rank',     yesPool: 410, noPool: 286, bettors: 880,  lockMin: 42,  seed: [20,22,19,24,26,25,30,28,27,31,33,32] },
+    { id: 'm3',  type: 'WEEKLY',  kolId: 'euris',     question: 'Euris clears 1,000 SOL this week?',    sub: 'Settles on weekly realized profit',       yesPool: 286, noPool: 402, bettors: 712,  lockMin: 330, seed: [30,28,26,27,24,25,22,23,20,21,18,17] },
+    { id: 'm4',  type: 'DAILY',   kolId: 'cented',    question: 'Cented green today?',                  sub: 'YES if daily realized PnL > 0',           yesPool: 521, noPool: 190, bettors: 654,  lockMin: 18,  seed: [10,14,13,18,21,20,25,27,26,30,34,38] },
+    { id: 'm5',  type: 'WEEKLY',  kolId: 'mitch',     question: 'Mitch finishes Top-5 this week?',      sub: 'Settles Sun 23:59 UTC by rank',           yesPool: 372, noPool: 248, bettors: 590,  lockMin: 240, seed: [16,18,17,20,19,23,22,26,25,28,27,30] },
+    { id: 'm6',  type: 'DAILY',   kolId: 'kreo',      question: 'Kreo clears 100 SOL today?',           sub: 'Settles 00:00 UTC on realized profit',    yesPool: 168, noPool: 224, bettors: 430,  lockMin: 128, seed: [22,20,21,19,18,20,17,18,16,17,15,16] },
+    { id: 'm7',  type: 'MONTHLY', kolId: 'waddles',   question: 'Waddles Top-10 this month?',           sub: 'Settles last day of month, 23:59 UTC',    yesPool: 612, noPool: 388, bettors: 1020, lockMin: 840, seed: [18,20,22,21,24,26,25,28,30,29,32,34] },
+    { id: 'm8',  type: 'WEEKLY',  kolId: 'sebastian', question: 'Sebastian out-trades Ansem this week?',sub: 'YES if Sebastian PnL > Ansem PnL',        yesPool: 142, noPool: 506, bettors: 498,  lockMin: 380, seed: [26,24,25,22,20,21,18,16,17,14,13,11] },
+    { id: 'm9',  type: 'DAILY',   kolId: 'pow',       question: 'Pow green today?',                     sub: 'YES if daily realized PnL > 0',           yesPool: 248, noPool: 176, bettors: 360,  lockMin: 55,  seed: [14,16,15,18,20,19,22,24,23,26,25,28] },
+    { id: 'm10', type: 'WEEKLY',  kolId: 'gake',      question: 'Gake clears 500 SOL this week?',       sub: 'Settles on weekly realized profit',       yesPool: 196, noPool: 268, bettors: 388,  lockMin: 224, seed: [24,22,23,21,22,20,21,19,20,18,19,17] },
+    { id: 'm11', type: 'DAILY',   kolId: 'jijo',      question: 'Jijo finishes Top-3 today?',           sub: 'Settles 00:00 UTC by daily PnL rank',     yesPool: 134, noPool: 210, bettors: 276,  lockMin: 72,  seed: [20,19,21,18,19,17,18,16,17,15,16,14] },
+    { id: 'm12', type: 'MONTHLY', kolId: 'loopier',   question: 'Loopier #1 this month?',               sub: 'Settles last day of month, 23:59 UTC',    yesPool: 88,  noPool: 412, bettors: 244,  lockMin: 1200,seed: [22,20,18,19,16,17,14,15,12,13,10,9] },
+  ];
+
+  // ---- formatting helpers -------------------------------------------------
+  fmt(v, d = 2) { return Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }); }
+  compact(v) {
+    if (v >= 1000) return (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'K';
+    return String(Math.round(v));
+  }
+  usd(sol) { return '$' + this.fmt(sol * 214.3, 2); }
+  lockLabel(min) {
+    if (min < 60) return 'Locks in ' + min + 'm';
+    const h = Math.floor(min / 60), m = min % 60;
+    if (h < 24) return 'Locks in ' + h + 'h ' + (m ? m + 'm' : '').trim();
+    return 'Locks in ' + Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
+  }
+  typeColor(t) {
+    if (t === 'DAILY') return '#5CFF7A';
+    if (t === 'WEEKLY') return '#39FF14';
+    return '#FFC53D';
+  }
+
+  // ---- pool math ----------------------------------------------------------
+  adj(id, side) {
+    return this.state.bets
+      .filter((b) => b.marketId === id && b.status === 'ACTIVE' && b.side === side)
+      .reduce((a, b) => a + b.stake, 0);
+  }
+  pools(m) {
+    return { yes: m.yesPool + this.adj(m.id, 'YES'), no: m.noPool + this.adj(m.id, 'NO') };
+  }
+  spark(seed) {
+    const w = 88, h = 26, n = seed.length;
+    const min = Math.min(...seed), max = Math.max(...seed), span = (max - min) || 1;
+    return seed.map((v, i) => `${((i / (n - 1)) * w).toFixed(1)},${(h - ((v - min) / span) * h).toFixed(1)}`).join(' ');
+  }
+
+  shapeMarket(m) {
+    const k = this.KOLS[m.kolId];
+    const p = this.pools(m);
+    const total = p.yes + p.no;
+    const yesPct = Math.round((p.yes / total) * 100);
+    const noPct = 100 - yesPct;
+    const tc = this.typeColor(m.type);
+    const trendUp = m.seed[m.seed.length - 1] >= m.seed[0];
+    return {
+      id: m.id, type: m.type, typeColor: tc,
+      typeStyle: { color: tc, borderColor: tc + '55', background: tc + '12' },
+      question: m.question, sub: m.sub,
+      kolName: k.name, kolHandle: k.handle, kolInitials: k.initials,
+      yesPct, noPct,
+      yesLabel: yesPct + '%', noLabel: noPct + '%',
+      yesBarStyle: { width: yesPct + '%' },
+      noBarStyle: { width: noPct + '%' },
+      volumeLabel: this.compact(total) + ' SOL',
+      bettorsLabel: this.compact(m.bettors),
+      lockLabel: this.lockLabel(m.lockMin),
+      lockColor: m.lockMin <= 60 ? '#FFC53D' : '#84938A',
+      urgent: m.lockMin <= 60,
+      spark: this.spark(m.seed),
+      sparkColor: trendUp ? '#39FF14' : '#FF5E5E',
+      multLabel: '×' + (total / p.yes).toFixed(2),
+      onClick: () => this.open(m.id),
+    };
+  }
+
+  computeBet() {
+    const m = this.MARKETS.find((x) => x.id === this.state.activeId) || this.MARKETS[0];
+    const p = this.pools(m);
+    const side = this.state.side;
+    const s = parseFloat(this.state.stake) || 0;
+    const sidePool = side === 'YES' ? p.yes : p.no;
+    const otherPool = side === 'YES' ? p.no : p.yes;
+    const total = p.yes + p.no;
+    const impliedSmall = total / sidePool; // multiplier as stake→0
+    const newSide = sidePool + s;
+    const grossPayout = s > 0 ? (s * (newSide + otherPool)) / newSide : 0;
+    const grossWin = Math.max(0, grossPayout - s);
+    const waived = this.state.nocry >= 10000;
+    const fee = waived ? 0 : grossWin * 0.025;
+    const netPayout = s > 0 ? grossPayout - fee : 0;
+    const netWin = Math.max(0, netPayout - s);
+    return { m, side, s, impliedSmall, grossPayout, netPayout, netWin, fee, waived, total, sidePool };
+  }
+
+  // ---- actions ------------------------------------------------------------
+  go(s) { this.setState({ screen: s }); window.scrollTo({ top: 0 }); }
+  open(id) { this.setState({ screen: 'market', activeId: id, side: 'YES', stake: '' }); window.scrollTo({ top: 0 }); }
+  setFilter(f) { this.setState({ filter: f }); }
+  setSide(s) { this.setState({ side: s }); }
+  setStake(v) {
+    const clean = String(v).replace(/[^0-9.]/g, '');
+    this.setState({ stake: clean });
+  }
+  quick(frac) {
+    const b = this.state.balance;
+    const v = frac === 'max' ? Math.max(0, b - 0.01) : Math.min(b, frac);
+    this.setState({ stake: v.toFixed(2) });
+  }
+  setPfTab(t) { this.setState({ pfTab: t }); }
+
+  connect() {
+    this.setState({ connected: true });
+    this.flash('Wallet connected · ' + this.fmt(this.state.balance) + ' SOL');
+  }
+  disconnect() { this.setState({ connected: false }); }
+
+  flash(msg) {
+    this.setState({ toast: msg });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.setState({ toast: null }), 2600);
+  }
+
+  placeBet() {
+    if (!this.state.connected) { this.connect(); return; }
+    const b = this.computeBet();
+    if (b.s <= 0) { this.flash('Enter a stake to place a bet'); return; }
+    if (b.s > this.state.balance) { this.flash('Insufficient balance'); return; }
+    const k = this.KOLS[b.m.kolId];
+    const bet = {
+      id: 'b' + Date.now(), marketId: b.m.id, question: b.m.question, kolId: b.m.kolId,
+      side: b.side, stake: b.s, mult: b.netPayout / b.s, placed: 'just now', status: 'ACTIVE',
+    };
+    this.setState((st) => ({
+      bets: [bet, ...st.bets],
+      balance: +(st.balance - b.s).toFixed(2),
+      stake: '',
+    }));
+    this.flash('Bet placed · ' + this.fmt(b.s) + ' SOL on ' + b.side + ' · ' + k.name);
+  }
+
+  renderVals() {
+    const st = this.state;
+    const screen = st.screen;
+
+    // nav
+    const navDef = [
+      { key: 'markets', label: 'Markets' },
+      { key: 'leaderboard', label: 'Leaderboard' },
+      { key: 'portfolio', label: 'Portfolio' },
+    ];
+    const navItems = navDef.map((n) => {
+      const active = screen === n.key || (n.key === 'markets' && screen === 'market');
+      return {
+        key: n.key, label: n.label, onClick: () => this.go(n.key),
+        style: {
+          padding: '8px 4px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          color: active ? '#E6EFE8' : '#84938A', position: 'relative',
+          borderBottom: active ? '2px solid #39FF14' : '2px solid transparent',
+          transition: 'color .15s ease',
+        },
+      };
+    });
+
+    // ticker
+    const tickerRows = Object.values(this.KOLS).map((k) => ({
+      name: k.name, val: (k.pnl >= 0 ? '+' : '') + this.fmt(k.pnl, 1) + ' SOL',
+      color: k.pnl >= 0 ? '#5CFF7A' : '#FF5E5E',
+    }));
+
+    // markets list
+    const filtered = this.MARKETS.filter((m) => st.filter === 'ALL' || m.type === st.filter);
+    const marketsView = filtered.map((m) => this.shapeMarket(m));
+    const filters = [
+      { key: 'ALL', label: 'All' }, { key: 'DAILY', label: 'Daily' },
+      { key: 'WEEKLY', label: 'Weekly' }, { key: 'MONTHLY', label: 'Monthly' },
+    ].map((f) => ({
+      ...f, onClick: () => this.setFilter(f.key),
+      style: {
+        padding: '7px 16px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+        border: '1px solid ' + (st.filter === f.key ? 'rgba(57,255,20,.5)' : 'rgba(124,255,107,.12)'),
+        background: st.filter === f.key ? 'rgba(57,255,20,.12)' : 'transparent',
+        color: st.filter === f.key ? '#7CFF6B' : '#84938A',
+        transition: 'all .15s ease',
+      },
+    }));
+
+    // hero featured (top 3 by volume)
+    const featured = [...this.MARKETS]
+      .sort((a, b) => (this.pools(b).yes + this.pools(b).no) - (this.pools(a).yes + this.pools(a).no))
+      .slice(0, 3).map((m) => this.shapeMarket(m));
+
+    // market detail
+    const m = this.MARKETS.find((x) => x.id === st.activeId) || this.MARKETS[0];
+    const det = this.shapeMarket(m);
+    const k = this.KOLS[m.kolId];
+    const b = this.computeBet();
+    const related = this.MARKETS.filter((x) => x.id !== m.id && x.type === m.type).slice(0, 3).map((x) => this.shapeMarket(x));
+
+    const yesSel = st.side === 'YES';
+    const sideTabStyle = (isYes) => {
+      const sel = (isYes && yesSel) || (!isYes && !yesSel);
+      const c = isYes ? '#39FF14' : '#FF5E5E';
+      return {
+        flex: 1, padding: '14px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'center',
+        border: '1px solid ' + (sel ? c + '99' : 'rgba(124,255,107,.12)'),
+        background: sel ? (isYes ? 'rgba(57,255,20,.14)' : 'rgba(255,94,94,.12)') : 'rgba(255,255,255,.02)',
+        boxShadow: sel ? '0 0 24px ' + c + '33, inset 0 1px 0 ' + c + '22' : 'none',
+        transition: 'all .18s ease',
+      };
+    };
+
+    const bet = {
+      side: st.side, yesSel,
+      stake: st.stake,
+      sideTabYes: sideTabStyle(true),
+      sideTabNo: sideTabStyle(false),
+      yesOddLabel: det.yesLabel, noOddLabel: det.noLabel,
+      yesMult: '×' + (det.yesPct ? (100 / det.yesPct).toFixed(2) : '—'),
+      noMult: '×' + (det.noPct ? (100 / det.noPct).toFixed(2) : '—'),
+      multLabel: '×' + b.impliedSmall.toFixed(2),
+      payoutLabel: this.fmt(b.netPayout) + ' SOL',
+      toWinLabel: '+' + this.fmt(b.netWin) + ' SOL',
+      feeLabel: b.waived ? '0 SOL · waived' : this.fmt(b.fee, 3) + ' SOL',
+      waived: b.waived,
+      hasStake: b.s > 0,
+      sideColor: yesSel ? '#39FF14' : '#FF5E5E',
+      ctaLabel: !st.connected ? 'Connect Wallet to Bet' : (b.s <= 0 ? 'Enter a stake' : 'Place Bet · ' + this.fmt(b.s) + ' SOL'),
+      ctaReady: st.connected && b.s > 0 && b.s <= st.balance,
+      ctaStyle: {
+        width: '100%', padding: '16px', borderRadius: 12, border: 'none', cursor: 'pointer',
+        fontFamily: 'Orbitron, sans-serif', fontWeight: 800, fontSize: 14, letterSpacing: '.04em',
+        textTransform: 'uppercase',
+        background: (st.connected && b.s > 0) ? 'linear-gradient(180deg,#6CFF4A,#39FF14)' : 'rgba(57,255,20,.14)',
+        color: (st.connected && b.s > 0) ? '#04130a' : '#7CFF6B',
+        boxShadow: (st.connected && b.s > 0) ? '0 10px 30px rgba(57,255,20,.32), inset 0 1px 0 rgba(255,255,255,.4)' : 'none',
+        transition: 'all .18s ease', opacity: (st.connected && b.s > b.s) ? 0.5 : 1,
+      },
+      onPlace: () => this.placeBet(),
+      onStake: (e) => this.setStake(e.target.value),
+      setYes: () => this.setSide('YES'),
+      setNo: () => this.setSide('NO'),
+      q05: () => this.quick(0.5), q1: () => this.quick(1), q5: () => this.quick(5), qMax: () => this.quick('max'),
+    };
+
+    // leaderboard
+    const leaders = Object.values(this.KOLS)
+      .sort((a, b) => b.pnl - a.pnl)
+      .map((kk, i) => ({
+        rank: i + 1, name: kk.name, handle: kk.handle, initials: kk.initials,
+        pnlLabel: (kk.pnl >= 0 ? '+' : '') + this.fmt(kk.pnl, 1),
+        winLabel: kk.win + '%',
+        volLabel: this.compact(kk.vol),
+        trades: kk.trades,
+        winBarStyle: { width: kk.win + '%' },
+        rankBg: i === 0 ? 'rgba(255,197,61,.10)' : i === 1 ? 'rgba(124,255,107,.06)' : i === 2 ? 'rgba(124,255,107,.04)' : 'transparent',
+        rankColor: i === 0 ? '#FFC53D' : i === 1 ? '#C9D6CC' : i === 2 ? '#C08B4A' : '#84938A',
+        medal: i < 3,
+        delta: kk.delta,
+        deltaLabel: kk.delta === 0 ? '—' : (kk.delta > 0 ? '▲ ' + kk.delta : '▼ ' + Math.abs(kk.delta)),
+        deltaColor: kk.delta === 0 ? '#58655B' : (kk.delta > 0 ? '#5CFF7A' : '#FF5E5E'),
+        onClick: () => {
+          const mk = this.MARKETS.find((x) => x.kolId === Object.keys(this.KOLS).find((key) => this.KOLS[key].name === kk.name));
+          if (mk) this.open(mk.id);
+        },
+      }));
+
+    // portfolio
+    const shapeBet = (bt) => {
+      const kk = this.KOLS[bt.kolId];
+      const won = bt.status === 'WON', lost = bt.status === 'LOST';
+      const pnl = won ? bt.payout - bt.stake : lost ? -bt.stake : 0;
+      return {
+        id: bt.id, question: bt.question, kolName: kk ? kk.name : '', initials: kk ? kk.initials : '?',
+        side: bt.side, sideColor: bt.side === 'YES' ? '#39FF14' : '#FF5E5E',
+        stakeLabel: this.fmt(bt.stake) + ' SOL', placed: bt.placed,
+        status: bt.status,
+        statusStyle: {
+          color: won ? '#5CFF7A' : lost ? '#FF5E5E' : '#7CFF6B',
+          background: won ? 'rgba(57,255,20,.12)' : lost ? 'rgba(255,94,94,.12)' : 'rgba(124,255,107,.08)',
+          border: '1px solid ' + (won ? 'rgba(57,255,20,.3)' : lost ? 'rgba(255,94,94,.3)' : 'rgba(124,255,107,.2)'),
+        },
+        rightLabel: bt.status === 'ACTIVE' ? '→ ' + this.fmt(bt.stake * bt.mult) + ' SOL' : (pnl >= 0 ? '+' : '') + this.fmt(pnl) + ' SOL',
+        rightColor: bt.status === 'ACTIVE' ? '#7CFF6B' : pnl >= 0 ? '#5CFF7A' : '#FF5E5E',
+        rightSub: bt.status === 'ACTIVE' ? 'potential' : 'P/L',
+        onClick: () => this.open(bt.marketId),
+      };
+    };
+    const active = st.bets.filter((x) => x.status === 'ACTIVE');
+    const settled = st.bets.filter((x) => x.status !== 'ACTIVE');
+    const pfBets = (st.pfTab === 'active' ? active : settled).map(shapeBet);
+    const settledPnl = settled.reduce((a, x) => a + (x.status === 'WON' ? x.payout - x.stake : -x.stake), 0);
+    const wins = settled.filter((x) => x.status === 'WON').length;
+    const wagered = st.bets.reduce((a, x) => a + x.stake, 0);
+
+    const pfTabs = [
+      { key: 'active', label: 'Active · ' + active.length },
+      { key: 'settled', label: 'Settled · ' + settled.length },
+    ].map((t) => ({
+      ...t, onClick: () => this.setPfTab(t.key),
+      style: {
+        padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+        background: st.pfTab === t.key ? 'rgba(57,255,20,.12)' : 'transparent',
+        color: st.pfTab === t.key ? '#7CFF6B' : '#84938A',
+        border: '1px solid ' + (st.pfTab === t.key ? 'rgba(57,255,20,.3)' : 'transparent'),
+        transition: 'all .15s ease',
+      },
+    }));
+
+    return {
+      screen,
+      isHome: screen === 'home', isMarkets: screen === 'markets', isMarket: screen === 'market',
+      isLeaderboard: screen === 'leaderboard', isPortfolio: screen === 'portfolio',
+      goHome: () => this.go('home'), goMarkets: () => this.go('markets'),
+      goLeaderboard: () => this.go('leaderboard'), goPortfolio: () => this.go('portfolio'),
+      navItems,
+      tickerRows,
+      connected: st.connected,
+      walletLabel: st.connected ? this.fmt(st.balance) + ' SOL' : 'Connect Wallet',
+      walletSub: st.connected ? '7xKQ…f3Ld' : '',
+      onWallet: () => (st.connected ? this.disconnect() : this.connect()),
+      nocryLabel: this.compact(st.nocry) + ' $NOCRY',
+      feeWaived: st.nocry >= 10000,
+      solPrice: '$214.30',
+      // markets
+      filters, marketsView, marketsCount: marketsView.length + ' markets',
+      featured,
+      // detail
+      det, kolHandle: k.handle, kolInitials: k.initials, kolName: k.name,
+      detVolumeUsd: this.usd(b.total), detTotalLabel: this.fmt(b.total, 0) + ' SOL',
+      bet, related,
+      balanceLabel: this.fmt(st.balance) + ' SOL',
+      // leaderboard
+      leaders,
+      // portfolio
+      pfTabs, pfBets,
+      pfBalance: this.fmt(st.balance) + ' SOL', pfBalanceUsd: this.usd(st.balance),
+      pfNocry: this.fmt(st.nocry, 0) + ' $NOCRY',
+      pfWagered: this.fmt(wagered) + ' SOL',
+      pfPnl: (settledPnl >= 0 ? '+' : '') + this.fmt(settledPnl) + ' SOL',
+      pfPnlColor: settledPnl >= 0 ? '#5CFF7A' : '#FF5E5E',
+      pfWin: settled.length ? Math.round((wins / settled.length) * 100) + '%' : '—',
+      pfOpen: active.length,
+      pfEmpty: pfBets.length === 0,
+      // toast
+      toast: st.toast,
+      hasToast: !!st.toast,
+    };
+  }
+}
+</script>
+</body>
+</html>
