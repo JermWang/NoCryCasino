@@ -2,7 +2,6 @@
 
 import Link from "next/link"
 import { Header } from "@/components/header"
-import { AsciiSpaceBackground } from "@/components/ascii-space-background"
 import { FeaturedMarkets, FooterTrustStrip } from "@/components/landing/featured-markets"
 
 // Large detailed ASCII laughing-crying smiley (exact from the design home section).
@@ -56,10 +55,7 @@ export default function HomePage() {
         overflowX: "hidden",
       }}
     >
-      {/* ASCII space background (preserved) + the design's fixed radial ambient overlay */}
-      <div className="fixed inset-0 z-0 pointer-events-none">
-        <AsciiSpaceBackground />
-      </div>
+      {/* clean radial ambient overlay only — no warping ASCII shader (matches the design canvas) */}
       <div className="ncc-ambient" />
 
       <div style={{ position: "relative", zIndex: 1 }}>
