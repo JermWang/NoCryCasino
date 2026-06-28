@@ -1,14 +1,12 @@
 "use client"
 
-import { useState } from "react"
-import { Users, TrendingUp, CheckCircle2, XCircle, Trophy } from "lucide-react"
-import { Card } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
-import { PoolBar } from "./pool-bar"
+import { useState, type CSSProperties } from "react"
+import { Trophy, XCircle, CheckCircle2 } from "lucide-react"
 import { BetDialog } from "./bet-dialog"
-import { KolAvatar } from "./pm-ui"
 import type { OutcomeRow } from "./types"
-import { formatCompact, impliedYesPct, mintLabel, shortAddress, type PmSide } from "./pm-client"
+import { formatCompact, impliedYesPct, shortAddress, type PmSide } from "./pm-client"
+import { buildSpark } from "./pm-spark"
+import { KolNeonAvatar } from "./market-card-bits"
 
 type OutcomeCardProps = {
   outcome: OutcomeRow
@@ -23,9 +21,10 @@ type OutcomeCardProps = {
 }
 
 /**
- * Card for one KOL outcome in a parimutuel round: avatar, the live YES/NO odds
- * bar, implied probability, pool sizes, bettor activity, settlement state, and
- * YES/NO buttons that open the BetDialog.
+ * One KOL outcome rendered as the exact No Cry Casino market card (neon tile,
+ * 44px green-radial Orbitron avatar, big YES figure + glow, sparkline, 8px
+ * pool bar, Vol / bettors footer) with YES / NO action buttons that open the
+ * BetDialog. Settled / cancelled outcomes swap the buttons for a verdict.
  */
 export function OutcomeCard({
   outcome,
@@ -39,138 +38,184 @@ export function OutcomeCard({
   const [dialogOpen, setDialogOpen] = useState(false)
   const [side, setSide] = useState<PmSide>("YES")
 
-  const currency = mintLabel(collateralMint)
   const name =
     outcome.kols?.display_name && outcome.kols.display_name.length > 0
       ? outcome.kols.display_name
+      : shortAddress(outcome.kol_wallet_address)
+  const handle =
+    outcome.kols?.twitter_handle && outcome.kols.twitter_handle.length > 0
+      ? `@${outcome.kols.twitter_handle}`
       : shortAddress(outcome.kol_wallet_address)
 
   const yesPool = Number(outcome.yes_pool ?? 0)
   const noPool = Number(outcome.no_pool ?? 0)
   const totalPool = Number(outcome.total_pool ?? yesPool + noPool)
-  const yesCount = Number(outcome.yes_bettor_count ?? 0)
-  const noCount = Number(outcome.no_bettor_count ?? 0)
-  const bettors = yesCount + noCount
+  const bettors = Number(outcome.yes_bettor_count ?? 0) + Number(outcome.no_bettor_count ?? 0)
   const yesPct = impliedYesPct(yesPool, noPool, outcome.yes_prob)
+  const noPct = 100 - yesPct
+
+  const yesShare = yesPool > 0 ? yesPool : totalPool > 0 ? totalPool : 1
+  const mult = totalPool > 0 ? totalPool / yesShare : 1
+
+  const spark = buildSpark(outcome.outcome_id, yesPct)
+  const sparkColor = spark.trendUp ? "#39FF14" : "#FF5E5E"
 
   const settled = outcome.status === "SETTLED"
   const cancelled = outcome.status === "CANCELLED"
   const disabled = Boolean(bettingClosed) || settled || cancelled || outcome.status !== "ACTIVE"
+
+  const question =
+    outcome.question_text && outcome.question_text.length > 0
+      ? outcome.question_text
+      : `Will ${name} finish on top?`
 
   function openBet(s: PmSide) {
     setSide(s)
     setDialogOpen(true)
   }
 
-  return (
-    <Card className="pm-panel pm-card-hover group gap-4 p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <KolAvatar src={outcome.kols?.avatar_url} name={name} size={40} className="h-10 w-10" ring />
-          <div className="min-w-0">
-            <div className="truncate font-semibold leading-tight">{name}</div>
-            {outcome.kols?.twitter_handle ? (
-              <a
-                href={outcome.kols.twitter_url ?? `https://x.com/${outcome.kols.twitter_handle}`}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="truncate text-xs text-muted-foreground hover:text-emerald-400"
-              >
-                @{outcome.kols.twitter_handle}
-              </a>
-            ) : (
-              <div className="truncate text-xs text-muted-foreground">
-                {shortAddress(outcome.kol_wallet_address)}
-              </div>
-            )}
-          </div>
-        </div>
+  const labelColor = settled
+    ? outcome.final_outcome
+      ? "#5CFF7A"
+      : "#FF7676"
+    : yesPct >= 50
+      ? "#84938A"
+      : "#FF7676"
 
-        <div className="flex flex-col items-end gap-1">
-          {settled ? (
-            <span
-              className={cn(
-                "inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-xs font-bold",
-                outcome.final_outcome
-                  ? "bg-emerald-500/15 text-emerald-400"
-                  : "bg-red-500/15 text-red-400",
-              )}
+  return (
+    <div
+      className="pm-market-card"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 14,
+        height: "100%",
+        background:
+          "linear-gradient(180deg,rgba(124,255,107,.022),rgba(0,0,0,0)),#0a0f0c",
+        border: "1px solid rgba(124,255,107,.1)",
+        borderRadius: 16,
+        padding: 18,
+      }}
+    >
+      {/* Avatar + name + handle, with settled badge on the right */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <KolNeonAvatar src={outcome.kols?.avatar_url} name={name} size={44} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 15, lineHeight: 1.25, color: "#E6EFE8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {name}
+          </div>
+          {outcome.kols?.twitter_handle ? (
+            <a
+              href={outcome.kols.twitter_url ?? `https://x.com/${outcome.kols.twitter_handle}`}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{ fontSize: 12, color: "#6E7C72", fontFamily: "'JetBrains Mono', monospace", marginTop: 2, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
             >
-              {outcome.final_outcome ? (
-                <>
-                  <Trophy className="h-3 w-3" /> YES won
-                </>
-              ) : (
-                <>
-                  <XCircle className="h-3 w-3" /> NO won
-                </>
-              )}
-            </span>
-          ) : cancelled ? (
-            <span className="inline-flex shrink-0 items-center rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
-              Cancelled
-            </span>
+              {handle}
+            </a>
           ) : (
-            <div className="flex flex-col items-end leading-none">
-              <div
-                className={cn(
-                  "pm-figure text-2xl",
-                  yesPct >= 50 ? "pm-figure-glow text-emerald-400" : "text-red-400",
-                )}
-              >
-                {yesPct}%
-              </div>
-              <div className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">% YES</div>
+            <div style={{ fontSize: 12, color: "#6E7C72", fontFamily: "'JetBrains Mono', monospace", marginTop: 2 }}>
+              {handle}
             </div>
           )}
         </div>
+        {settled ? (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "4px 10px",
+              borderRadius: 999,
+              fontSize: 11,
+              fontWeight: 700,
+              flexShrink: 0,
+              color: outcome.final_outcome ? "#5CFF7A" : "#FF7676",
+              background: outcome.final_outcome ? "rgba(57,255,20,.12)" : "rgba(255,94,94,.12)",
+              border: `1px solid ${outcome.final_outcome ? "rgba(57,255,20,.3)" : "rgba(255,94,94,.3)"}`,
+            }}
+          >
+            {outcome.final_outcome ? <Trophy className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+            {outcome.final_outcome ? "YES won" : "NO won"}
+          </span>
+        ) : cancelled ? (
+          <span style={{ padding: "4px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, color: "#84938A", background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.1)", flexShrink: 0 }}>
+            Cancelled
+          </span>
+        ) : null}
       </div>
 
-      {outcome.question_text ? (
-        <p className="line-clamp-2 text-sm text-muted-foreground">{outcome.question_text}</p>
-      ) : null}
+      {/* Question */}
+      <div style={{ fontSize: 13, color: "#84938A", lineHeight: 1.45, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+        {question}
+      </div>
 
-      <PoolBar yesPool={yesPool} noPool={noPool} yesProb={outcome.yes_prob} />
-
-      <div className="grid grid-cols-3 gap-2 text-xs">
-        <div className="rounded-lg border border-[rgba(57,255,20,0.2)] bg-[rgba(57,255,20,0.05)] px-2.5 py-2">
-          <div className="uppercase tracking-wide text-muted-foreground">YES pool</div>
-          <div className="mt-0.5 font-bold tabular-nums text-emerald-400">{formatCompact(yesPool)}</div>
-        </div>
-        <div className="rounded-lg border border-[rgba(255,77,77,0.2)] bg-[rgba(255,77,77,0.05)] px-2.5 py-2">
-          <div className="uppercase tracking-wide text-muted-foreground">NO pool</div>
-          <div className="mt-0.5 font-bold tabular-nums text-red-400">{formatCompact(noPool)}</div>
-        </div>
-        <div className="rounded-lg border border-border/50 bg-[rgba(4,8,6,0.5)] px-2.5 py-2">
-          <div className="flex items-center gap-1 uppercase tracking-wide text-muted-foreground">
-            <TrendingUp className="h-3 w-3" /> Volume
+      {/* Big YES figure + sparkline */}
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+        <div>
+          <div
+            style={{
+              fontFamily: "'Orbitron', sans-serif",
+              fontWeight: 800,
+              fontSize: 30,
+              lineHeight: 1,
+              color: yesPct >= 50 ? "#39FF14" : "#FF5E5E",
+              textShadow: yesPct >= 50 ? "0 0 18px rgba(57,255,20,.35)" : "0 0 18px rgba(255,94,94,.3)",
+            }}
+          >
+            {yesPct}%
           </div>
-          <div className="mt-0.5 font-bold tabular-nums">{formatCompact(totalPool)}</div>
+          <div style={{ fontSize: 10, letterSpacing: ".12em", textTransform: "uppercase", color: labelColor, marginTop: 3 }}>
+            YES · ×{mult.toFixed(2)}
+          </div>
         </div>
+        <svg viewBox="0 0 88 26" width={88} height={26} preserveAspectRatio="none" style={{ overflow: "visible" }}>
+          <polyline
+            points={spark.points}
+            fill="none"
+            stroke={sparkColor}
+            strokeWidth={1.6}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ filter: `drop-shadow(0 0 4px ${spark.trendUp ? "rgba(57,255,20,.5)" : "rgba(255,94,94,.5)"})` }}
+          />
+        </svg>
       </div>
 
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1">
-          <Users className="h-3.5 w-3.5" />
-          {bettors} bettor{bettors === 1 ? "" : "s"}
+      {/* 8px YES/NO pool bar */}
+      <div style={{ height: 8, borderRadius: 999, overflow: "hidden", display: "flex", background: "rgba(255,255,255,.05)" }}>
+        <div style={{ width: `${yesPct}%`, background: "linear-gradient(90deg,#39FF14,#5CFF7A)", boxShadow: "0 0 12px rgba(57,255,20,.45)", transition: "width .5s ease" }} />
+        <div style={{ width: `${noPct}%`, background: "linear-gradient(90deg,#FF5E5E,#FF3B3B)", transition: "width .5s ease" }} />
+      </div>
+
+      {/* Footer: Vol / bettors */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 12, borderTop: "1px solid rgba(124,255,107,.07)", fontSize: 12 }}>
+        <span style={{ color: "#84938A" }}>
+          Vol <span style={{ color: "#B7C2BA", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}>{formatCompact(totalPool)}</span>
         </span>
-        <span className="text-emerald-400/80">{yesCount} YES</span>
-        <span className="text-red-400/80">{noCount} NO</span>
+        <span style={{ color: "#84938A" }}>
+          <span style={{ color: "#B7C2BA", fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}>{bettors}</span> bettors
+        </span>
       </div>
 
+      {/* Action row */}
       {settled ? (
-        <div className="flex items-center justify-center gap-1.5 rounded-lg border border-border/50 bg-muted/20 py-2.5 text-xs font-medium text-muted-foreground">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: "auto", borderRadius: 12, border: "1px solid rgba(124,255,107,.1)", background: "rgba(0,0,0,.25)", padding: "10px 0", fontSize: 12, color: "#84938A" }}>
           <CheckCircle2 className="h-3.5 w-3.5" /> Settled — payouts distributed
         </div>
+      ) : cancelled ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: "auto", borderRadius: 12, border: "1px solid rgba(124,255,107,.1)", background: "rgba(0,0,0,.25)", padding: "10px 0", fontSize: 12, color: "#84938A" }}>
+          Stakes refunded
+        </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2 pt-1">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: "auto", paddingTop: 2 }}>
           <button
             type="button"
             disabled={disabled}
             onClick={() => openBet("YES")}
             aria-label={`Bet YES on ${name} at ${yesPct} percent`}
-            className="pm-btn-green rounded-lg py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.6)]"
+            style={ctaStyle(true, disabled)}
           >
             YES · {yesPct}%
           </button>
@@ -178,10 +223,10 @@ export function OutcomeCard({
             type="button"
             disabled={disabled}
             onClick={() => openBet("NO")}
-            aria-label={`Bet NO on ${name} at ${100 - yesPct} percent`}
-            className="pm-btn-red-outline rounded-lg py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,77,77,0.5)]"
+            aria-label={`Bet NO on ${name} at ${noPct} percent`}
+            style={ctaStyle(false, disabled)}
           >
-            NO · {100 - yesPct}%
+            NO · {noPct}%
           </button>
         </div>
       )}
@@ -198,6 +243,41 @@ export function OutcomeCard({
         feeWaived={feeWaived}
         onBetPlaced={onBetPlaced}
       />
-    </Card>
+    </div>
   )
+}
+
+/** YES (solid neon) / NO (red outline) button styles matching the design. */
+function ctaStyle(isYes: boolean, disabled: boolean): CSSProperties {
+  if (isYes) {
+    return {
+      borderRadius: 10,
+      padding: "10px 0",
+      fontFamily: "'Orbitron', sans-serif",
+      fontWeight: 800,
+      fontSize: 13,
+      letterSpacing: ".02em",
+      cursor: disabled ? "not-allowed" : "pointer",
+      border: "1px solid rgba(57,255,20,.6)",
+      background: "linear-gradient(180deg,#6CFF4A,#39FF14)",
+      color: "#04130a",
+      boxShadow: "0 6px 18px rgba(57,255,20,.28), inset 0 1px 0 rgba(255,255,255,.35)",
+      opacity: disabled ? 0.45 : 1,
+      transition: "filter .15s ease, transform .15s ease",
+    }
+  }
+  return {
+    borderRadius: 10,
+    padding: "10px 0",
+    fontFamily: "'Orbitron', sans-serif",
+    fontWeight: 800,
+    fontSize: 13,
+    letterSpacing: ".02em",
+    cursor: disabled ? "not-allowed" : "pointer",
+    border: "1px solid rgba(255,94,94,.38)",
+    background: "rgba(255,94,94,.08)",
+    color: "#FF7676",
+    opacity: disabled ? 0.45 : 1,
+    transition: "background-color .15s ease, border-color .15s ease",
+  }
 }

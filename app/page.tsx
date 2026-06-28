@@ -1,199 +1,194 @@
 "use client"
 
+import Link from "next/link"
 import { Header } from "@/components/header"
 import { AsciiSpaceBackground } from "@/components/ascii-space-background"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { FeaturedMarkets, FooterTrustStrip } from "@/components/landing/featured-markets"
+
+// Large detailed ASCII laughing-crying smiley (exact from the design home section).
+const SMILEY_ASCII = `                      ██████████████████
+                ██████░░░░░░░░░░░░░░░░██████
+            ████░░░░░░░░░░░░░░░░░░░░░░░░░░████
+          ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██
+        ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██
+      ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██
+    ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██
+    ██░░░░░░████████░░░░░░░░░░░░░░░░████████░░░░░░░░██
+  ██░░░░░░██████████░░░░░░░░░░░░░░██████████░░░░░░░░░░██
+  ██░░░░████████████░░░░░░░░░░░░░░████████████░░░░░░░░██
+  ██░░░░██████████░░░░░░░░░░░░░░░░░░██████████░░░░░░░░██
+  ██░░░░░░████████░░░░░░░░░░░░░░░░░░████████░░░░░░░░░░██
+  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██
+  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██
+  ██░░██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██░░██
+  ██░░░░██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██░░░░██
+    ██░░░░████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████░░░░██
+    ██░░░░░░░░████████████████████████████░░░░░░░░░░██
+      ██░░░░░░░░░░░░████████████████░░░░░░░░░░░░░░██
+        ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██
+          ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██
+            ████░░░░░░░░░░░░░░░░░░░░░░░░░░████
+                ██████░░░░░░░░░░░░░░░░██████
+                      ██████████████████                      `
+
+// Blocky pixel-style "NO CRY CASINO" wordmark (exact from the design home section).
+const TITLE_ASCII = `██  ██  █████      █████ █████  ██  ██
+███ ██ ██   ██    ██     ██  ██  ████
+██████ ██   ██    ██     █████    ██
+██ ███ ██   ██    ██     ██  ██   ██
+██  ██  █████      █████ ██  ██   ██
+
+ ████   ████  ████  ██ ██  ██  ████
+██     ██  ██ ██    ██ ███ ██ ██  ██
+██     ██████ ████  ██ ██████ ██  ██
+██     ██  ██    ██ ██ ██ ███ ██  ██
+ ████  ██  ██ ████  ██ ██  ██  ████  `
 
 export default function HomePage() {
-  // Large detailed ASCII laughing-crying emoji (like reference image)
-  const laughingEmoji = `
-                      ██████████████████                      
-                ██████░░░░░░░░░░░░░░░░██████                
-            ████░░░░░░░░░░░░░░░░░░░░░░░░░░████            
-          ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██          
-        ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██        
-      ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██      
-    ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██    
-    ██░░░░░░████████░░░░░░░░░░░░░░░░████████░░░░░░░░██    
-  ██░░░░░░██████████░░░░░░░░░░░░░░██████████░░░░░░░░░░██  
-  ██░░░░████████████░░░░░░░░░░░░░░████████████░░░░░░░░██  
-  ██░░░░██████████░░░░░░░░░░░░░░░░░░██████████░░░░░░░░██  
-  ██░░░░░░████████░░░░░░░░░░░░░░░░░░████████░░░░░░░░░░██  
-  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██  
-  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██  
-  ██░░██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██░░██  
-  ██░░░░██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██░░░░██  
-    ██░░░░████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████░░░░██    
-    ██░░░░░░░░████████████████████████████░░░░░░░░░░██    
-      ██░░░░░░░░░░░░████████████████░░░░░░░░░░░░░░██      
-        ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██        
-          ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██          
-            ████░░░░░░░░░░░░░░░░░░░░░░░░░░████            
-                ██████░░░░░░░░░░░░░░░░██████                
-                      ██████████████████                      
-`
-
-  // Blocky pixel-style "NO CRY CASINO" text
-  const titleText = `
-██  ██  █████      █████ █████  ██  ██
-███ ██ ██   ██    ██     ██  ██  ████ 
-██████ ██   ██    ██     █████    ██  
-██ ███ ██   ██    ██     ██  ██   ██  
-██  ██  █████      █████ ██  ██   ██  
-
- ████   ████  ████  ██ ██  ██  ████  
-██     ██  ██ ██    ██ ███ ██ ██  ██ 
-██     ██████ ████  ██ ██████ ██  ██ 
-██     ██  ██    ██ ██ ██ ███ ██  ██ 
- ████  ██  ██ ████  ██ ██  ██  ████  
-`
-
-  const [tickerItems, setTickerItems] = useState<string[]>(["LOADING DAILY KOL PNL"])
-  const [tickerRepeat, setTickerRepeat] = useState(1)
-  const tickerRef = useRef<HTMLDivElement | null>(null)
-  const tickerRowRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    let alive = true
-
-    const formatSol = (v: number) => {
-      const sign = v > 0 ? "+" : v < 0 ? "-" : ""
-      const abs = Math.abs(v)
-      return `${sign}${abs.toFixed(2)} SOL`
-    }
-
-    const load = async () => {
-      try {
-        const res = await fetch("/api/analytics/leaderboard?timeframe=daily&eligibility=0")
-        const json = (await res.json().catch(() => null)) as any
-        const rows = Array.isArray(json?.rows) ? (json.rows as any[]) : []
-
-        const items = rows
-          .slice(0, 30)
-          .map((r) => {
-            const name = (typeof r?.display_name === "string" && r.display_name.trim().length > 0 ? r.display_name.trim() : null) ??
-              (typeof r?.wallet_address === "string" ? r.wallet_address.slice(0, 6) : "KOL")
-            const profit = Number(r?.profit_sol)
-            const profitText = Number.isFinite(profit) ? formatSol(profit) : "0.00 SOL"
-            return `${name} ${profitText}`
-          })
-          .filter((s) => typeof s === "string" && s.length > 0)
-
-        if (alive) setTickerItems(items.length > 0 ? items : ["NO DAILY DATA"])
-      } catch {
-        if (alive) setTickerItems(["NO DAILY DATA"])
-      }
-    }
-
-    void load()
-    const t = setInterval(load, 300_000)
-
-    return () => {
-      alive = false
-      clearInterval(t)
-    }
-  }, [])
-
-  const tickerBaseItems = useMemo(() => {
-    return tickerItems.length > 0 ? tickerItems : ["NO DAILY DATA"]
-  }, [tickerItems])
-
-  const tickerRowItems = useMemo(() => {
-    const out: string[] = []
-    const reps = Math.max(1, Math.min(50, Math.floor(tickerRepeat)))
-    for (let i = 0; i < reps; i += 1) out.push(...tickerBaseItems)
-    return out.length > 0 ? out : ["NO DAILY DATA"]
-  }, [tickerBaseItems, tickerRepeat])
-
-  useLayoutEffect(() => {
-    if (!tickerRef.current || !tickerRowRef.current) return
-
-    const container = tickerRef.current
-    const row = tickerRowRef.current
-
-    let raf = 0
-
-    const compute = () => {
-      if (!container || !row) return
-      const c = container.getBoundingClientRect().width
-      const r = row.getBoundingClientRect().width
-      if (!Number.isFinite(c) || !Number.isFinite(r) || c <= 0 || r <= 0) return
-
-      const unitWidth = r / Math.max(1, tickerRepeat)
-      if (!Number.isFinite(unitWidth) || unitWidth <= 0) return
-
-      const next = Math.max(1, Math.min(50, Math.ceil((c * 2) / unitWidth)))
-      if (next !== tickerRepeat) setTickerRepeat(next)
-    }
-
-    const schedule = () => {
-      if (raf) cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(compute)
-    }
-
-    schedule()
-
-    const ro = new ResizeObserver(schedule)
-    ro.observe(container)
-    ro.observe(row)
-
-    const fonts: any = (document as any)?.fonts
-    if (fonts?.ready && typeof fonts.ready.then === "function") {
-      fonts.ready.then(schedule).catch(() => null)
-    }
-
-    window.addEventListener("load", schedule)
-
-    return () => {
-      if (raf) cancelAnimationFrame(raf)
-      ro.disconnect()
-      window.removeEventListener("load", schedule)
-    }
-  }, [tickerBaseItems, tickerRepeat])
-
   return (
-    <div className="relative min-h-screen overflow-hidden bg-black text-[#7CFF6B]">
-      <AsciiSpaceBackground />
-      <div className="relative z-10 flex flex-col min-h-screen">
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#04070a",
+        color: "#E6EFE8",
+        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+        position: "relative",
+        overflowX: "hidden",
+      }}
+    >
+      {/* ASCII space background (preserved) + the design's fixed radial ambient overlay */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <AsciiSpaceBackground />
+      </div>
+      <div className="ncc-ambient" />
+
+      <div style={{ position: "relative", zIndex: 1 }}>
         <Header />
 
-        {/* Scrolling ticker */}
-        <div className="ncc-ticker" ref={tickerRef}>
-          <div className="ncc-ticker-track">
-            <div className="ncc-ticker-row" ref={tickerRowRef}>
-              {tickerRowItems.map((t, i) => (
-                <span key={`a-${i}`} className="ncc-ticker-item">
-                  ◆ {t} ◆
-                </span>
-              ))}
+        <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 24px" }}>
+          {/* ============ HOME ============ */}
+          <section
+            style={{
+              minHeight: "calc(100vh - 250px)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              textAlign: "center",
+              padding: "48px 0 36px",
+            }}
+          >
+            <pre
+              aria-label="No Cry Casino smiley"
+              style={{
+                margin: 0,
+                whiteSpace: "pre",
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: "clamp(5px, .92vw, 11px)",
+                lineHeight: 1,
+                letterSpacing: "-.05em",
+                color: "#7CFF6B",
+                textShadow:
+                  "0 0 10px rgba(124,255,107,.8), 0 0 30px rgba(124,255,107,.5), 0 0 60px rgba(124,255,107,.3)",
+                animation: "ncc-glow 2.6s ease-in-out infinite",
+              }}
+            >
+              {SMILEY_ASCII}
+            </pre>
+
+            <pre
+              aria-label="No Cry Casino"
+              style={{
+                margin: "1.6rem 0 0",
+                whiteSpace: "pre",
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: "clamp(7px, 1.25vw, 15px)",
+                lineHeight: 1.1,
+                letterSpacing: ".05em",
+                color: "#7CFF6B",
+                textShadow:
+                  "0 0 8px rgba(124,255,107,.7), 0 0 24px rgba(124,255,107,.4), 0 0 48px rgba(124,255,107,.2)",
+                animation: "ncc-glow 2.6s ease-in-out infinite .5s",
+              }}
+            >
+              {TITLE_ASCII}
+            </pre>
+
+            <div
+              style={{
+                marginTop: "1.7rem",
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 12,
+                letterSpacing: ".34em",
+                color: "rgba(124,255,107,.5)",
+              }}
+            >
+              LIVE KOL TRACKING • P2P MARKETS
             </div>
-            <div className="ncc-ticker-row" aria-hidden="true">
-              {tickerRowItems.map((t, i) => (
-                <span key={`b-${i}`} className="ncc-ticker-item">
-                  ◆ {t} ◆
-                </span>
-              ))}
+
+            <div
+              style={{
+                display: "flex",
+                gap: 14,
+                marginTop: 38,
+                flexWrap: "wrap",
+                justifyContent: "center",
+              }}
+            >
+              <Link
+                href="/pm"
+                className="ncc-cta-primary"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 9,
+                  padding: "14px 30px",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  fontFamily: "'Orbitron', sans-serif",
+                  fontWeight: 800,
+                  fontSize: 13,
+                  letterSpacing: ".04em",
+                  textTransform: "uppercase",
+                  textDecoration: "none",
+                  background: "linear-gradient(180deg,#6CFF4A,#39FF14)",
+                  color: "#04130a",
+                  boxShadow: "0 12px 34px rgba(57,255,20,.3), inset 0 1px 0 rgba(255,255,255,.4)",
+                }}
+              >
+                Enter Markets →
+              </Link>
+              <Link
+                href="/leaderboard"
+                className="ncc-cta-secondary"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 9,
+                  padding: "14px 28px",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  letterSpacing: ".04em",
+                  textTransform: "uppercase",
+                  textDecoration: "none",
+                  border: "1px solid rgba(124,255,107,.22)",
+                  color: "#7CFF6B",
+                  background: "rgba(124,255,107,.04)",
+                }}
+              >
+                Leaderboard
+              </Link>
             </div>
-          </div>
+          </section>
+
+          {/* featured markets */}
+          <FeaturedMarkets />
         </div>
 
-        {/* Main content - centered emoji + title */}
-        <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
-          {/* Large animated ASCII emoji */}
-          <pre className="ncc-emoji-ascii" aria-label="Laughing crying emoji">
-            {laughingEmoji}
-          </pre>
-
-          {/* Blocky ASCII title */}
-          <pre className="ncc-title-ascii" aria-label="No Cry Casino">
-            {titleText}
-          </pre>
-
-          {/* Subtle tagline */}
-          <div className="mt-6 text-center font-mono text-xs text-[#7CFF6B]/50 tracking-[0.3em]">
-            LIVE KOL TRACKING • P2P MARKETS
-          </div>
-        </div>
+        {/* footer trust strip */}
+        <FooterTrustStrip />
       </div>
     </div>
   )

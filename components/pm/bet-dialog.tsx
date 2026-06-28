@@ -1,10 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type CSSProperties } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { useWalletModal } from "@solana/wallet-adapter-react-ui"
 import { toast } from "sonner"
-import { ArrowRight, Wallet, TrendingUp, AlertCircle, Zap } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -12,10 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 import type { OutcomeRow } from "./types"
-import { KolAvatar, FeeWaiverBanner } from "./pm-ui"
+import { KolNeonAvatar } from "./market-card-bits"
 import {
   base64FromBytes,
   buildPmMessage,
@@ -24,7 +21,6 @@ import {
   impliedYesPct,
   makeNonce,
   mintLabel,
-  payoutMultiple,
   previewPayout,
   shortAddress,
   type PmSide,
@@ -48,19 +44,20 @@ type BetDialogProps = {
   onBetPlaced?: () => void
 }
 
-const QUICK_AMOUNTS = [0.1, 0.5, 1, 5]
-
 /**
- * Amount-input dialog that places a parimutuel bet. Builds + signs the
- * canonical "NoCryCasino PM Bet v1" message with the connected wallet and
- * POSTs it to /api/pm/bets/place. The signed-message contract is unchanged
- * from the original; only the surrounding UX is richer.
+ * The No Cry Casino BET SLIP panel (design canvas spec) as a dialog: selected
+ * market header, YES/NO toggle with odds·multiplier, a WAGER input with a SOL/
+ * USDC chip + quick chips, the dashed payout summary, the $NOCRY "0 fees"
+ * banner, and the big glowing PLACE BET button.
+ *
+ * The signed-message contract + POST to /api/pm/bets/place are UNCHANGED from
+ * the original; only the surrounding UX/skin is the design's.
  */
 export function BetDialog({
   open,
   onOpenChange,
   outcome,
-  side,
+  side: initialSide,
   collateralMint,
   disabled,
   available,
@@ -71,18 +68,21 @@ export function BetDialog({
   const { publicKey, connected, signMessage } = useWallet()
   const { setVisible } = useWalletModal()
 
+  const [side, setSide] = useState<PmSide>(initialSide)
   const [amount, setAmount] = useState("0.5")
   const [submitting, setSubmitting] = useState(false)
 
   const currency = mintLabel(collateralMint)
+  const isYes = side === "YES"
 
-  // Reset the amount whenever the dialog opens for a fresh outcome/side.
+  // Reset side/amount whenever the dialog opens for a fresh outcome/side.
   useEffect(() => {
     if (open) {
+      setSide(initialSide)
       setAmount("0.5")
       setSubmitting(false)
     }
-  }, [open, outcome?.outcome_id, side])
+  }, [open, outcome?.outcome_id, initialSide])
 
   const kolName = useMemo(() => {
     if (!outcome) return ""
@@ -92,15 +92,18 @@ export function BetDialog({
 
   const yesPool = Number(outcome?.yes_pool ?? 0)
   const noPool = Number(outcome?.no_pool ?? 0)
+  const totalPool = Number(outcome?.total_pool ?? yesPool + noPool)
   const numericAmount = Number(amount)
   const amountValid = Number.isFinite(numericAmount) && numericAmount > 0
-  const isYes = side === "YES"
 
   const balance = typeof available === "number" ? available : null
   const insufficient = balance != null && amountValid && numericAmount > balance + 1e-9
 
-  // Implied odds shift this bet would cause (purely indicative).
   const oddsNow = impliedYesPct(yesPool, noPool, outcome?.yes_prob)
+  const yesShare = yesPool > 0 ? yesPool : totalPool > 0 ? totalPool : 1
+  const noShare = noPool > 0 ? noPool : totalPool > 0 ? totalPool : 1
+  const yesMult = totalPool > 0 ? totalPool / yesShare : 1
+  const noMult = totalPool > 0 ? totalPool / noShare : 1
   const oddsAfter = useMemo(() => {
     if (!amountValid) return oddsNow
     return impliedYesPct(isYes ? yesPool + numericAmount : yesPool, isYes ? noPool : noPool + numericAmount)
@@ -116,9 +119,29 @@ export function BetDialog({
     if (grossReturn == null) return null
     const profit = grossReturn - numericAmount
     if (profit <= 0) return grossReturn
+    if (feeWaived) return grossReturn
     const fee = (profit * rakeBps) / 10_000
     return grossReturn - fee
-  }, [grossReturn, numericAmount, rakeBps])
+  }, [grossReturn, numericAmount, rakeBps, feeWaived])
+
+  const feeAmount = useMemo(() => {
+    if (grossReturn == null) return 0
+    const profit = grossReturn - numericAmount
+    if (profit <= 0 || feeWaived) return 0
+    return (profit * rakeBps) / 10_000
+  }, [grossReturn, numericAmount, rakeBps, feeWaived])
+
+  const netWin = netReturn != null && amountValid ? Math.max(0, netReturn - numericAmount) : 0
+  const sideColor = isYes ? "#39FF14" : "#FF5E5E"
+
+  function quick(frac: number | "max") {
+    if (frac === "max") {
+      const b = balance ?? 0
+      setAmount(b > 0 ? String(b) : "0")
+      return
+    }
+    setAmount(String(frac))
+  }
 
   async function placeBet() {
     if (!outcome) return
@@ -210,185 +233,226 @@ export function BetDialog({
     }
   }
 
-  const multiplier = payoutMultiple(numericAmount, netReturn)
+  const placeReady = connected && amountValid && !insufficient && !disabled && !submitting
+  const ctaLabel = submitting
+    ? "Placing…"
+    : disabled
+      ? "Betting closed"
+      : !connected
+        ? "Connect Wallet to Bet"
+        : insufficient
+          ? "Insufficient balance"
+          : !amountValid
+            ? "Enter a stake"
+            : `Place Bet · ${formatAmount(numericAmount, 2)} ${currency}`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="pm-theme border-[rgba(124,255,107,0.22)] bg-[#070b09]/95 backdrop-blur-xl">
-        <DialogHeader>
-          <div className="mb-1 flex items-center justify-between">
-            <span className="pm-kicker">Bet Slip</span>
-            <span className="pm-chip pm-chip-muted">{currency}</span>
-          </div>
-          <DialogTitle className="flex items-center gap-3">
-            <KolAvatar src={outcome?.kols?.avatar_url} name={kolName} size={40} className="h-10 w-10" ring />
-            <div className="min-w-0 flex-1">
-              <span className="block truncate text-base font-bold text-foreground">{kolName}</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                {outcome?.question_text ? "Market" : "Will be #1 this week?"}
+      <DialogContent
+        className="pm-theme p-0"
+        style={{
+          background: "linear-gradient(180deg,rgba(124,255,107,.04),rgba(0,0,0,0)),#0b110d",
+          border: "1px solid rgba(124,255,107,.16)",
+          borderRadius: 18,
+          boxShadow: "0 20px 50px rgba(0,0,0,.5)",
+        }}
+      >
+        <div style={{ padding: 22 }}>
+          {/* Header: BET SLIP + balance */}
+          <DialogHeader>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <DialogTitle asChild>
+                <h3 style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 800, fontSize: 16, letterSpacing: ".04em", margin: 0, color: "#E6EFE8" }}>
+                  BET SLIP
+                </h3>
+              </DialogTitle>
+              <span style={{ fontSize: 11, color: "#84938A", fontFamily: "'JetBrains Mono', monospace" }}>
+                Balance {balance != null ? `${formatAmount(balance, 2)} ${currency}` : `— ${currency}`}
               </span>
             </div>
-          </DialogTitle>
-          <DialogDescription className="line-clamp-2 text-left">
-            {outcome?.question_text ?? "Will be #1 this week? Stake into this outcome's parimutuel pool."}
-          </DialogDescription>
-        </DialogHeader>
+            <DialogDescription className="sr-only">
+              Place a parimutuel bet on {kolName}.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Selected side pill + odds */}
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--pm-line)] bg-[rgba(4,8,6,0.6)] p-3">
-            <span
-              className={cn(
-                "inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-extrabold uppercase tracking-wide",
-                isYes
-                  ? "bg-[rgba(57,255,20,0.16)] text-emerald-300 [text-shadow:0_0_10px_rgba(57,255,20,0.5)]"
-                  : "bg-[rgba(255,77,77,0.14)] text-red-300",
-              )}
-            >
-              {side}
+          {/* Selected market line */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <KolNeonAvatar src={outcome?.kols?.avatar_url} name={kolName || "?"} size={40} />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: "#E6EFE8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {kolName}
+              </div>
+              <div style={{ fontSize: 12, color: "#6E7C72", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical" }}>
+                {outcome?.question_text ?? "Stake into this outcome's parimutuel pool."}
+              </div>
+            </div>
+          </div>
+
+          {/* YES / NO toggle */}
+          <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+            <button type="button" onClick={() => setSide("YES")} style={sideTab(true, isYes)}>
+              <div style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 800, fontSize: 15, color: "#39FF14" }}>YES</div>
+              <div style={{ fontSize: 12, color: "#84938A", marginTop: 3 }}>{oddsNow}% · ×{yesMult.toFixed(2)}</div>
+            </button>
+            <button type="button" onClick={() => setSide("NO")} style={sideTab(false, !isYes)}>
+              <div style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 800, fontSize: 15, color: "#FF5E5E" }}>NO</div>
+              <div style={{ fontSize: 12, color: "#84938A", marginTop: 3 }}>{100 - oddsNow}% · ×{noMult.toFixed(2)}</div>
+            </button>
+          </div>
+
+          {/* WAGER input */}
+          <label style={{ fontSize: 12, color: "#84938A", letterSpacing: ".06em", textTransform: "uppercase", display: "block", marginBottom: 8 }}>
+            Your wager
+          </label>
+          <div style={{ position: "relative", marginBottom: 10 }}>
+            <input
+              value={amount}
+              onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+              placeholder="0.00"
+              inputMode="decimal"
+              autoFocus
+              aria-invalid={insufficient}
+              className="pm-slip-input"
+              style={{
+                width: "100%",
+                background: "rgba(4,8,6,.7)",
+                border: `1px solid ${insufficient ? "rgba(255,94,94,.55)" : "rgba(124,255,107,.2)"}`,
+                borderRadius: 12,
+                color: "#E6EFE8",
+                fontFamily: "'Orbitron', sans-serif",
+                fontWeight: 700,
+                fontSize: 22,
+                padding: "14px 60px 14px 16px",
+                outline: "none",
+              }}
+            />
+            <span style={{ position: "absolute", right: 16, top: "50%", transform: "translateY(-50%)", fontSize: 13, fontWeight: 600, color: "#7CFF6B" }}>
+              {currency}
             </span>
-            <div className="flex items-center gap-4 text-right">
-              <div className="leading-none">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Odds</div>
-                <div className={cn("pm-figure text-lg", isYes ? "text-emerald-400" : "text-red-400")}>
-                  {multiplier}
-                </div>
-              </div>
-              <div className="leading-none">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Implied</div>
-                <div className="pm-figure text-lg text-foreground">{isYes ? oddsNow : 100 - oddsNow}%</div>
-              </div>
-            </div>
+          </div>
+          <div style={{ display: "flex", gap: 7, marginBottom: 18 }}>
+            {([0.5, 1, 5] as const).map((q) => (
+              <button key={q} type="button" onClick={() => quick(q)} style={quickChip()}>
+                {q}
+              </button>
+            ))}
+            <button type="button" onClick={() => quick("max")} style={quickChip()}>
+              MAX
+            </button>
           </div>
 
-          {/* Live pools */}
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="rounded-lg border border-[rgba(57,255,20,0.2)] bg-[rgba(57,255,20,0.06)] p-3">
-              <div className="text-xs uppercase tracking-wide text-muted-foreground">YES · {oddsNow}%</div>
-              <div className="font-bold tabular-nums text-emerald-400">
-                {formatCompact(yesPool)} {currency}
+          {/* $NOCRY fee-waiver banner */}
+          {feeWaived ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, borderRadius: 14, padding: "14px 16px", border: "1px solid rgba(57,255,20,.4)", background: "rgba(57,255,20,.08)", marginBottom: 16 }}>
+              <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(57,255,20,.16)", fontSize: 16 }}>⚡</span>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: ".04em", textTransform: "uppercase", color: "#7CFF6B", textShadow: "0 0 10px rgba(57,255,20,.4)" }}>0 fees active</div>
+                <div style={{ fontSize: 12, color: "#84938A", marginTop: 1 }}>Your $NOCRY balance waives all rake.</div>
               </div>
             </div>
-            <div className="rounded-lg border border-[rgba(255,77,77,0.2)] bg-[rgba(255,77,77,0.06)] p-3">
-              <div className="text-xs uppercase tracking-wide text-muted-foreground">NO · {100 - oddsNow}%</div>
-              <div className="font-bold tabular-nums text-red-400">
-                {formatCompact(noPool)} {currency}
-              </div>
-            </div>
-          </div>
-
-          {/* Wager amount with SOL/USDC chip */}
-          <div>
-            <div className="mb-1.5 flex items-center justify-between">
-              <label htmlFor="bet-amount" className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                Wager
-              </label>
-              {balance != null && (
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  <Wallet className="h-3 w-3" />
-                  <span className="tabular-nums">{formatAmount(balance, 3)}</span> available
-                </span>
-              )}
-            </div>
-            <div className="relative">
-              <input
-                id="bet-amount"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                inputMode="decimal"
-                autoFocus
-                placeholder="0.0"
-                aria-invalid={insufficient}
-                className="pm-input px-3 py-3 pr-20 text-2xl font-extrabold tabular-nums"
-              />
-              <span className="pm-chip absolute right-2.5 top-1/2 -translate-y-1/2">{currency}</span>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {QUICK_AMOUNTS.map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  onClick={() => setAmount(String(q))}
-                  className="rounded-md border border-border/50 px-2.5 py-1 text-xs font-semibold tabular-nums text-muted-foreground transition-colors hover:border-[rgba(57,255,20,0.4)] hover:text-emerald-400"
-                >
-                  {q}
-                </button>
-              ))}
-              {balance != null && balance > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setAmount(String(balance))}
-                  className="rounded-md border border-[rgba(57,255,20,0.3)] bg-[rgba(57,255,20,0.06)] px-2.5 py-1 text-xs font-bold uppercase text-emerald-400 transition-colors hover:bg-[rgba(57,255,20,0.12)]"
-                >
-                  Max
-                </button>
-              )}
-            </div>
-            {insufficient && (
-              <div className="mt-2 flex items-center gap-1.5 text-xs text-red-400">
-                <AlertCircle className="h-3.5 w-3.5" />
-                Exceeds your {currency} balance.
-              </div>
-            )}
-          </div>
-
-          {/* $NOCRY fee waiver — prominent in the slip */}
-          <FeeWaiverBanner qualifies={feeWaived} />
-
-          {/* Return preview */}
-          {grossReturn != null && (
-            <div className="rounded-xl border border-[var(--pm-line)] bg-[rgba(4,8,6,0.6)] p-3.5">
-              <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
-                  <TrendingUp className="h-3.5 w-3.5" />
-                  Est. return if {side} wins
-                </span>
-                <span className="rounded-md bg-[rgba(57,255,20,0.12)] px-2 py-0.5 text-xs font-bold tabular-nums text-emerald-400">
-                  {multiplier}
-                </span>
-              </div>
-              <div className="pm-figure pm-figure-glow mt-1.5 text-2xl">
-                ~{formatAmount(netReturn ?? grossReturn, 3)} {currency}
-              </div>
-              <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                <span>
-                  Odds {oddsNow}%{" "}
-                  <ArrowRight className="inline h-3 w-3 -translate-y-px" /> {oddsAfter}% after your bet
-                </span>
-                <span>{feeWaived ? "0% fee · $NOCRY" : `net of ${(rakeBps / 100).toFixed(2).replace(/\.00$/, "")}% rake`}</span>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, borderRadius: 14, padding: "14px 16px", border: "1px solid rgba(124,255,107,.28)", background: "rgba(124,255,107,.05)", marginBottom: 16 }}>
+              <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(124,255,107,.1)", fontSize: 16 }}>◆</span>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: ".04em", textTransform: "uppercase", color: "#7CFF6B" }}>Hold 10k $NOCRY → 0 fees</div>
+                <div style={{ fontSize: 12, color: "#84938A", marginTop: 1 }}>Otherwise a small rake applies to winnings only.</div>
               </div>
             </div>
           )}
 
+          {/* Payout summary */}
+          <div style={{ borderTop: "1px dashed rgba(124,255,107,.14)", paddingTop: 16, marginBottom: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+            <SummaryRow label="Odds multiplier" value={`×${(isYes ? yesMult : noMult).toFixed(2)}`} color={sideColor} mono />
+            <SummaryRow
+              label="Est. payout"
+              value={`${formatAmount(netReturn ?? grossReturn ?? 0, 2)} ${currency}`}
+              color="#E6EFE8"
+              mono
+            />
+            <SummaryRow label="To win" value={`+${formatAmount(netWin, 2)} ${currency}`} color="#5CFF7A" mono />
+            <SummaryRow
+              label="Fee (rake)"
+              value={feeWaived ? "0 · waived" : `${formatAmount(feeAmount, 3)} ${currency}`}
+              color={feeWaived ? "#7CFF6B" : sideColor}
+              mono
+            />
+            <SummaryRow label="Implied after bet" value={`${isYes ? oddsNow : 100 - oddsNow}% → ${isYes ? oddsAfter : 100 - oddsAfter}%`} color="#84938A" />
+          </div>
+
+          {/* Place bet CTA */}
           <button
             type="button"
             onClick={placeBet}
-            disabled={submitting || disabled || !amountValid || insufficient}
-            className={cn(
-              "flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(57,255,20,0.6)]",
-              isYes ? "pm-btn-green" : "pm-btn-red-outline",
-            )}
+            disabled={submitting || disabled}
+            style={{
+              width: "100%",
+              padding: 16,
+              borderRadius: 12,
+              border: "none",
+              cursor: submitting || disabled ? "not-allowed" : "pointer",
+              fontFamily: "'Orbitron', sans-serif",
+              fontWeight: 800,
+              fontSize: 14,
+              letterSpacing: ".04em",
+              textTransform: "uppercase",
+              background: placeReady ? "linear-gradient(180deg,#6CFF4A,#39FF14)" : "rgba(57,255,20,.14)",
+              color: placeReady ? "#04130a" : "#7CFF6B",
+              boxShadow: placeReady ? "0 10px 30px rgba(57,255,20,.32), inset 0 1px 0 rgba(255,255,255,.4)" : "none",
+              transition: "filter .18s ease",
+            }}
           >
-            <Zap className="h-4 w-4" />
-            {submitting
-              ? "Placing…"
-              : disabled
-                ? "Betting closed"
-                : !connected
-                  ? "Connect wallet to bet"
-                  : insufficient
-                    ? "Insufficient balance"
-                    : `Place Bet · ${formatAmount(numericAmount, 3)} ${currency}`}
+            {ctaLabel}
           </button>
 
-          <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-            Winners split both pools pro-rata, minus rake. Hold 10k $NOCRY → 0 fees.
-            Final payout depends on pool sizes at lock.
+          <p style={{ textAlign: "center", fontSize: 11, lineHeight: 1.5, color: "#6E7C72", marginTop: 14, marginBottom: 0 }}>
+            Winners split both pools pro-rata, minus rake. Hold 10k $NOCRY → 0 fees. Final payout depends on pool sizes at lock.
           </p>
         </div>
       </DialogContent>
     </Dialog>
   )
+}
+
+function SummaryRow({ label, value, color, mono }: { label: string; value: string; color: string; mono?: boolean }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+      <span style={{ color: "#84938A" }}>{label}</span>
+      <span style={{ color, fontWeight: 700, fontFamily: mono ? "'JetBrains Mono', monospace" : undefined }}>{value}</span>
+    </div>
+  )
+}
+
+/** YES/NO toggle tab style (selected = glowing tinted, else faint). */
+function sideTab(isYes: boolean, selected: boolean): CSSProperties {
+  const c = isYes ? "#39FF14" : "#FF5E5E"
+  return {
+    flex: 1,
+    padding: "14px 12px",
+    borderRadius: 12,
+    cursor: "pointer",
+    textAlign: "center",
+    border: `1px solid ${selected ? `${c}99` : "rgba(124,255,107,.12)"}`,
+    background: selected ? (isYes ? "rgba(57,255,20,.14)" : "rgba(255,94,94,.12)") : "rgba(255,255,255,.02)",
+    boxShadow: selected ? `0 0 24px ${c}33, inset 0 1px 0 ${c}22` : "none",
+    transition: "all .18s ease",
+  }
+}
+
+/** Quick-stake chip style (0.5 / 1 / 5 / MAX). */
+function quickChip(): CSSProperties {
+  return {
+    flex: 1,
+    textAlign: "center",
+    padding: "8px 0",
+    borderRadius: 9,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    border: "1px solid rgba(124,255,107,.12)",
+    background: "transparent",
+    color: "#9FB0A4",
+    transition: "background-color .15s ease",
+  }
 }
 
 /** Map known server error codes from pm_place_bet to friendly copy. */

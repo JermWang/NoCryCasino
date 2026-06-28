@@ -75,9 +75,11 @@
 }
 
 @theme inline {
-  /* Using Orbitron as the primary font for the entire website */
-  --font-sans: "Orbitron", "Orbitron Fallback", system-ui, sans-serif;
-  --font-mono: "Orbitron", "Orbitron Fallback", monospace;
+  /* No Cry Casino brand fonts (loaded via <link> in layout.tsx).
+     Body font = Space Grotesk; Orbitron for display; JetBrains Mono for numerics. */
+  --font-sans: "Space Grotesk", system-ui, sans-serif;
+  --font-display: "Orbitron", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -125,6 +127,124 @@
   }
 }
 
+/* ============================================================
+   NO CRY CASINO — global shell (exact from design canvas head)
+   ============================================================ */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  background: #04070a;
+  color: #e6efe8;
+  font-family: "Space Grotesk", system-ui, sans-serif;
+}
+
+/* design keyframes — copied verbatim from the design <head> */
+@keyframes ncc-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+@keyframes ncc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(57, 255, 20, 0.8);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 14px rgba(57, 255, 20, 0.5);
+  }
+}
+@keyframes ncc-glow {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.18);
+  }
+}
+@keyframes ncc-toast {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes ncc-scan {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 64px;
+  }
+}
+
+::selection {
+  background: rgba(57, 255, 20, 0.3);
+  color: #fff;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(124, 255, 107, 0.18);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #04070a;
+}
+
+/* fixed radial-gradient ambient overlay from the design */
+.ncc-ambient {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    radial-gradient(120% 70% at 50% -10%, rgba(57, 255, 20, 0.06), rgba(0, 0, 0, 0) 60%),
+    radial-gradient(80% 50% at 50% 110%, rgba(57, 255, 20, 0.04), rgba(0, 0, 0, 0) 55%);
+}
+
+/* ---- landing hover states (design uses style-hover) ---- */
+.ncc-cta-primary:hover {
+  filter: brightness(1.07);
+  transform: translateY(-1px);
+}
+.ncc-cta-secondary:hover {
+  background: rgba(124, 255, 107, 0.1) !important;
+}
+.ncc-landing-card:hover {
+  border-color: rgba(57, 255, 20, 0.3) !important;
+  box-shadow:
+    0 0 0 1px rgba(57, 255, 20, 0.1),
+    0 14px 40px rgba(0, 0, 0, 0.5),
+    0 0 30px rgba(57, 255, 20, 0.1);
+  transform: translateY(-2px);
+}
+
+/* ---- responsive featured grid ---- */
+@media (max-width: 900px) {
+  .ncc-featured-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+@media (max-width: 600px) {
+  .ncc-featured-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
  .gold-gradient {
    background: linear-gradient(90deg, #4a421f 0%, #625e5d 100%);
  }
@@ -139,15 +259,6 @@
  .profit-red {
    color: #d87373;
  }
-
- @keyframes ncc-marquee {
-  0% {
-    transform: translate3d(0, 0, 0);
-  }
-  100% {
-    transform: translate3d(-50%, 0, 0);
-  }
-}
 
  @keyframes ncc-ascii-scroll {
    0% {
@@ -295,7 +406,7 @@
     0 0 10px rgba(124, 255, 107, 0.8),
     0 0 30px rgba(124, 255, 107, 0.5),
     0 0 60px rgba(124, 255, 107, 0.3);
-  animation: ncc-glow-pulse 2s ease-in-out infinite;
+  animation: ncc-glow 2.6s ease-in-out infinite;
 }
 
 /* Blocky pixel-style title text */
@@ -314,18 +425,7 @@
     0 0 8px rgba(124, 255, 107, 0.7),
     0 0 24px rgba(124, 255, 107, 0.4),
     0 0 48px rgba(124, 255, 107, 0.2);
-  animation: ncc-glow-pulse 2s ease-in-out infinite 0.5s;
-}
-
-@keyframes ncc-glow-pulse {
-  0%, 100% {
-    opacity: 1;
-    filter: brightness(1);
-  }
-  50% {
-    opacity: 0.92;
-    filter: brightness(1.15);
-  }
+  animation: ncc-glow 2.6s ease-in-out infinite 0.5s;
 }
 
 /* Navbar smiley logo */
