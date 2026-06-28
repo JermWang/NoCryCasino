@@ -30,13 +30,19 @@ const NAV_ITEMS: { href: string; label: string }[] = [
   { href: "/pm", label: "Portfolio" },
 ]
 
-function TickerRow({ ariaHidden = false }: { ariaHidden?: boolean }) {
+function TickerRow({
+  rows,
+  ariaHidden = false,
+}: {
+  rows: { name: string; val: string; color: string }[]
+  ariaHidden?: boolean
+}) {
   return (
     <div
       style={{ display: "flex", alignItems: "center", padding: "7px 0" }}
       aria-hidden={ariaHidden || undefined}
     >
-      {TICKER_ROWS.map((t, i) => (
+      {rows.map((t, i) => (
         <span
           key={i}
           style={{
@@ -62,6 +68,7 @@ export function Header() {
   const pathname = usePathname()
   const [solPriceUsd, setSolPriceUsd] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
+  const [tickerRows, setTickerRows] = useState(TICKER_ROWS)
 
   const { connected, publicKey, balance, disconnect } = useWallet()
   const { setVisible } = useWalletModal()
@@ -88,6 +95,41 @@ export function Header() {
     load()
     const t = setInterval(load, 60_000)
 
+    return () => {
+      mounted = false
+      clearInterval(t)
+    }
+  }, [])
+
+  // Live KOL leaderboard → ticker (real realized-SOL PnL). Falls back to sample.
+  useEffect(() => {
+    let mounted = true
+    async function loadTicker() {
+      try {
+        const res = await fetch("/api/analytics/leaderboard?timeframe=weekly&limit=20")
+        const json = (await res.json().catch(() => null)) as any
+        if (!mounted) return
+        const rows = Array.isArray(json?.rows) ? json.rows : []
+        const mapped = rows
+          .filter((r: any) => r && r.wallet_address)
+          .map((r: any) => {
+            const p = Number(r.profit_sol) || 0
+            const w = String(r.wallet_address)
+            const name =
+              (typeof r.display_name === "string" && r.display_name.trim()) || `${w.slice(0, 4)}…${w.slice(-4)}`
+            return {
+              name,
+              val: `${p >= 0 ? "+" : ""}${p.toFixed(1)} SOL`,
+              color: p >= 0 ? "#5CFF7A" : "#FF5E5E",
+            }
+          })
+        if (mapped.length > 0) setTickerRows(mapped)
+      } catch {
+        /* keep sample rows on failure */
+      }
+    }
+    loadTicker()
+    const t = setInterval(loadTicker, 120_000)
     return () => {
       mounted = false
       clearInterval(t)
@@ -295,8 +337,8 @@ export function Header() {
         }}
       >
         <div style={{ display: "flex", width: "max-content", animation: "ncc-marquee 48s linear infinite" }}>
-          <TickerRow />
-          <TickerRow ariaHidden />
+          <TickerRow rows={tickerRows} />
+          <TickerRow rows={tickerRows} ariaHidden />
         </div>
       </div>
     </header>
