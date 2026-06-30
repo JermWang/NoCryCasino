@@ -131,6 +131,15 @@ async function tick(request: NextRequest): Promise<NextResponse> {
   steps.withdrawals = await runStep("withdrawals", baseUrl, "/api/admin/pm/withdrawals/process", adminKey)
   steps.heliusSync = await runStep("heliusSync", baseUrl, "/api/admin/helius/webhook/sync", adminKey)
 
+  // Daily $NOCRY holder fee distribution. Gated to a short post-settlement
+  // window (00:30–00:35 UTC; settlements run at 00:15) so the expensive on-chain
+  // holder scan runs ~once/day rather than every minute. The endpoint is
+  // idempotent per (day, mint), so the handful of calls in the window are safe.
+  const utcNow = new Date()
+  if (utcNow.getUTCHours() === 0 && utcNow.getUTCMinutes() >= 30 && utcNow.getUTCMinutes() <= 35) {
+    steps.nocryDistribute = await runStep("nocryDistribute", baseUrl, "/api/admin/nocry/distribute", adminKey)
+  }
+
   // Always return 200 with a per-step summary; individual failures are reported
   // inside `steps` rather than failing the whole tick (so the scheduler does not
   // hammer retries and so a single flaky step does not block the others).

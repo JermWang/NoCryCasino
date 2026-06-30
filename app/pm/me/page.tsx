@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { useWalletModal } from "@solana/wallet-adapter-react-ui"
 import {
@@ -15,16 +15,27 @@ import {
   Trophy,
   Clock,
   Lock,
+  Coins,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { useToast } from "@/hooks/use-toast"
 import { PmShell } from "@/components/pm/pm-shell"
 import { DepositDialog } from "@/components/pm/deposit-dialog"
 import { WithdrawDialog } from "@/components/pm/withdraw-dialog"
 import { KolAvatar } from "@/components/pm/pm-ui"
 import { usePmState } from "@/components/pm/use-pm-state"
 import { usePmPortfolio, type EnrichedBet } from "@/components/pm/use-pm-portfolio"
-import { formatAmount, formatCompact, mintLabel, shortAddress, payoutMultiple } from "@/components/pm/pm-client"
+import {
+  formatAmount,
+  formatCompact,
+  mintLabel,
+  shortAddress,
+  payoutMultiple,
+  base64FromBytes,
+  buildPmMessage,
+  makeNonce,
+} from "@/components/pm/pm-client"
 
 type BetTab = "open" | "settled"
 
@@ -32,6 +43,7 @@ export default function PmMePage() {
   const { publicKey, connected } = useWallet()
   const { setVisible } = useWalletModal()
   const { state, loading, refresh } = usePmState()
+  const rewards = useHolderRewards(() => refresh({ silent: true }))
 
   const [depositOpen, setDepositOpen] = useState(false)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
@@ -248,6 +260,70 @@ export default function PmMePage() {
             )}
           </section>
 
+          {/* Token Holder Rewards */}
+          <section className="mb-8">
+            <h2 className="pm-display mb-3 text-lg text-foreground">Token Holder Rewards</h2>
+            <Card className="pm-panel gap-4 p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgba(57,255,20,0.12)] text-emerald-400 ring-1 ring-[rgba(57,255,20,0.35)]">
+                    <Coins className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <div className="font-semibold text-foreground">$NOCRY holder rewards</div>
+                    <p className="mt-0.5 max-w-md text-sm text-muted-foreground">
+                      Hold 1M+ $NOCRY &rarr; earn 50% of platform fees, split daily.
+                    </p>
+                  </div>
+                </div>
+                <div className="text-left sm:text-right">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Claimable</div>
+                  <div className="pm-figure text-2xl text-emerald-400 pm-figure-glow">
+                    {formatAmount(rewards.claimableTotal, 4)}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void rewards.claim()}
+                    disabled={rewards.claiming || rewards.loading || rewards.claimableTotal <= 0}
+                    className="pm-btn-green mt-2 inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Coins className="h-4 w-4" />
+                    {rewards.claiming ? "Claiming…" : "Claim"}
+                  </button>
+                </div>
+              </div>
+
+              {rewards.claims.length > 0 && (
+                <div className="border-t border-border/40 pt-3">
+                  <div className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">Recent distributions</div>
+                  <div className="space-y-1.5">
+                    {rewards.claims.slice(0, 6).map((c) => (
+                      <div key={c.claim_id} className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground tabular-nums">
+                          {String(c.created_at).slice(0, 10)}
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className="font-semibold tabular-nums">
+                            {formatAmount(c.amount, 4)} {mintLabel(c.mint)}
+                          </span>
+                          <span
+                            className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                              c.status === "CLAIMED"
+                                ? "bg-muted text-muted-foreground"
+                                : "bg-[rgba(57,255,20,0.15)] text-emerald-400"
+                            }`}
+                          >
+                            {c.status === "CLAIMED" ? "Claimed" : "Claimable"}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          </section>
+
           {/* Positions */}
           <section className="mb-8">
             <div className="mb-3 flex items-center justify-between">
@@ -441,6 +517,107 @@ function SettledBetRow({ bet }: { bet: EnrichedBet }) {
       </div>
     </Card>
   )
+}
+
+type RewardClaim = {
+  claim_id: string
+  mint: string
+  amount: number
+  status: string
+  created_at: string
+}
+
+/**
+ * Loads the connected wallet's claimable $NOCRY holder rewards (signed
+ * "NoCryCasino PM Rewards v1") and exposes a signed claim action
+ * ("NoCryCasino PM Rewards Claim v1", + nonce). Mirrors the signing flow in
+ * use-pm-state.ts. `onClaimed` lets the page refresh balances after a claim.
+ */
+function useHolderRewards(onClaimed: () => void) {
+  const { toast } = useToast()
+  const { publicKey, connected, signMessage } = useWallet()
+
+  const [claimableTotal, setClaimableTotal] = useState(0)
+  const [claims, setClaims] = useState<RewardClaim[]>([])
+  const [loading, setLoading] = useState(false)
+  const [claiming, setClaiming] = useState(false)
+  const inflight = useRef(false)
+
+  const load = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!publicKey || !signMessage || inflight.current) return
+      inflight.current = true
+      setLoading(true)
+      try {
+        const wallet_address = publicKey.toBase58()
+        const issued_at = new Date().toISOString()
+        const nonce = makeNonce()
+        const message = buildPmMessage("NoCryCasino PM Rewards v1", { wallet_address, nonce, issued_at })
+        const sigBytes = await signMessage(new TextEncoder().encode(message))
+        const signature_base64 = base64FromBytes(sigBytes)
+
+        const res = await fetch("/api/pm/rewards/me", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ wallet_address, nonce, issued_at, signature_base64, message }),
+        })
+        const json = (await res.json().catch(() => null)) as any
+        if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load rewards")
+
+        setClaimableTotal(Number(json?.claimable_total ?? 0))
+        setClaims(Array.isArray(json?.claims) ? json.claims : [])
+      } catch (e: any) {
+        if (!opts?.silent) {
+          toast({ title: "Holder rewards", description: e?.message ?? String(e), variant: "destructive" })
+        }
+      } finally {
+        setLoading(false)
+        inflight.current = false
+      }
+    },
+    [publicKey, signMessage, toast],
+  )
+
+  const claim = useCallback(async () => {
+    if (!publicKey || !signMessage || claiming) return
+    setClaiming(true)
+    try {
+      const wallet_address = publicKey.toBase58()
+      const issued_at = new Date().toISOString()
+      const nonce = makeNonce()
+      const message = buildPmMessage("NoCryCasino PM Rewards Claim v1", { wallet_address, nonce, issued_at })
+      const sigBytes = await signMessage(new TextEncoder().encode(message))
+      const signature_base64 = base64FromBytes(sigBytes)
+
+      const res = await fetch("/api/pm/rewards/claim", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ wallet_address, nonce, issued_at, signature_base64, message }),
+      })
+      const json = (await res.json().catch(() => null)) as any
+      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Claim failed")
+
+      const claimed = Number(json?.claimed_total ?? 0)
+      toast({
+        title: claimed > 0 ? "Rewards claimed" : "Nothing to claim",
+        description:
+          claimed > 0 ? `Credited ${formatAmount(claimed, 4)} to your balance.` : "No claimable rewards right now.",
+      })
+      await load({ silent: true })
+      onClaimed()
+    } catch (e: any) {
+      toast({ title: "Claim failed", description: e?.message ?? String(e), variant: "destructive" })
+    } finally {
+      setClaiming(false)
+    }
+  }, [publicKey, signMessage, claiming, toast, load, onClaimed])
+
+  useEffect(() => {
+    if (connected) void load({ silent: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, publicKey?.toBase58()])
+
+  return { claimableTotal, claims, loading, claiming, claim }
 }
 
 function EmptyPositions({ title, body }: { title: string; body: string }) {
