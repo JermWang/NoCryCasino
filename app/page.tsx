@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { Header } from "@/components/header"
 import { FeaturedMarkets, FooterTrustStrip } from "@/components/landing/featured-markets"
+import { NocryRewards } from "@/components/landing/nocry-rewards"
 
 // Large detailed ASCII laughing-crying smiley (exact from the design home section).
 const SMILEY_ASCII = `                      ██████████████████
@@ -145,6 +146,9 @@ export default function HomePage() {
 
           {/* featured markets */}
           <FeaturedMarkets />
+
+          {/* $NOCRY holder rewards explainer */}
+          <NocryRewards />
         </div>
 
         {/* footer trust strip */}

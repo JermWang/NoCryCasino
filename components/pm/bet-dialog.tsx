@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import type { OutcomeRow } from "./types"
 import { KolNeonAvatar } from "./market-card-bits"
+import { DepositDialog } from "./deposit-dialog"
 import {
   base64FromBytes,
   buildPmMessage,
@@ -71,6 +72,7 @@ export function BetDialog({
   const [side, setSide] = useState<PmSide>(initialSide)
   const [amount, setAmount] = useState("0.5")
   const [submitting, setSubmitting] = useState(false)
+  const [depositOpen, setDepositOpen] = useState(false)
 
   const currency = mintLabel(collateralMint)
   const isYes = side === "YES"
@@ -233,6 +235,7 @@ export function BetDialog({
     }
   }
 
+  const needsDeposit = connected && insufficient
   const placeReady = connected && amountValid && !insufficient && !disabled && !submitting
   const ctaLabel = submitting
     ? "Placing…"
@@ -240,13 +243,29 @@ export function BetDialog({
       ? "Betting closed"
       : !connected
         ? "Connect Wallet to Bet"
-        : insufficient
-          ? "Insufficient balance"
+        : needsDeposit
+          ? `Deposit ${currency} to bet →`
           : !amountValid
             ? "Enter a stake"
             : `Place Bet · ${formatAmount(numericAmount, 2)} ${currency}`
 
+  // One tap from the bet slip: connect if needed, open the deposit dialog when
+  // the balance is short (no dead "insufficient" wall), otherwise place the bet.
+  function onCta() {
+    if (!connected || !publicKey) {
+      onOpenChange(false)
+      setVisible(true)
+      return
+    }
+    if (needsDeposit) {
+      setDepositOpen(true)
+      return
+    }
+    void placeBet()
+  }
+
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="pm-theme p-0"
@@ -382,7 +401,7 @@ export function BetDialog({
           {/* Place bet CTA */}
           <button
             type="button"
-            onClick={placeBet}
+            onClick={onCta}
             disabled={submitting || disabled}
             style={{
               width: "100%",
@@ -410,6 +429,17 @@ export function BetDialog({
         </div>
       </DialogContent>
     </Dialog>
+
+      {/* Deposit shortcut: opened straight from the bet slip when balance is short. */}
+      <DepositDialog
+        open={depositOpen}
+        onOpenChange={setDepositOpen}
+        onDeposited={() => {
+          setDepositOpen(false)
+          onBetPlaced?.()
+        }}
+      />
+    </>
   )
 }
 
