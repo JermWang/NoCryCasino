@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { use, useCallback, useEffect, useMemo, useState } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { useWalletModal } from "@solana/wallet-adapter-react-ui"
 import {
@@ -45,12 +45,13 @@ async function loadRound(roundId: string): Promise<{ round: RoundRow; outcomes: 
   return { round, outcomes }
 }
 
-export default function PmRoundPage({ params }: { params: { roundId: string } }) {
+export default function PmRoundPage({ params }: { params: Promise<{ roundId: string }> }) {
+  const { roundId: rawRoundId } = use(params)
   const { connected } = useWallet()
   const { setVisible } = useWalletModal()
   const { state, refresh, availableFor } = usePmState()
 
-  const roundId = useMemo(() => decodeURIComponent(params.roundId ?? ""), [params.roundId])
+  const roundId = useMemo(() => decodeURIComponent(rawRoundId ?? ""), [rawRoundId])
 
   const [round, setRound] = useState<RoundRow | null>(null)
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>([])

@@ -417,7 +417,7 @@ export async function GET(request: NextRequest) {
         let linkQuery = supabase
           .from("tx_event_wallets")
           .select(
-            "signature, wallet_address, tx_events!tx_event_wallets_signature_fkey(block_time), kols!tx_event_wallets_wallet_address_fkey!inner(is_active,is_tracked)",
+            "signature, wallet_address, tx_events!tx_event_wallets_signature_fkey!inner(block_time), kols!tx_event_wallets_wallet_address_fkey!inner(is_active,is_tracked)",
           )
           .eq("kols.is_active", true)
           .eq("kols.is_tracked", true)

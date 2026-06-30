@@ -2,8 +2,9 @@ import { Header } from "@/components/header"
 import { WalletTxFeed } from "@/components/kolscan/wallet-tx-feed"
 import { Card } from "@/components/ui/card"
 
-export default async function KolPage({ params }: { params: { address: string } }) {
-  const address = decodeURIComponent(params.address)
+export default async function KolPage({ params }: { params: Promise<{ address: string }> }) {
+  const { address: rawAddress } = await params
+  const address = decodeURIComponent(rawAddress)
 
   return (
     <div className="min-h-screen">

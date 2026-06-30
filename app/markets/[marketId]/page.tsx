@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { use, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useConnection, useWallet } from "@solana/wallet-adapter-react"
 import { Header } from "@/components/header"
@@ -76,7 +76,8 @@ function buildOrderMessage(input: {
   ].join("\n")
 }
 
-export default function MarketDetailPage({ params }: { params: { marketId: string } }) {
+export default function MarketDetailPage({ params }: { params: Promise<{ marketId: string }> }) {
+  const { marketId } = use(params)
   const { toast } = useToast()
   const { connection } = useConnection()
   const { publicKey, connected, connect, connecting, signMessage, sendTransaction, wallet } = useWallet()
@@ -107,7 +108,7 @@ export default function MarketDetailPage({ params }: { params: { marketId: strin
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(`/api/markets/${encodeURIComponent(params.marketId)}`)
+        const res = await fetch(`/api/markets/${encodeURIComponent(marketId)}`)
         const json = await res.json()
         if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load market")
 
@@ -126,7 +127,7 @@ export default function MarketDetailPage({ params }: { params: { marketId: strin
     return () => {
       mounted = false
     }
-  }, [params.marketId])
+  }, [marketId])
 
   useEffect(() => {
     let mounted = true
@@ -138,7 +139,7 @@ export default function MarketDetailPage({ params }: { params: { marketId: strin
       }
 
       try {
-        const res = await fetch(`/api/markets/${encodeURIComponent(params.marketId)}/orders?wallet=${encodeURIComponent(walletAddress)}`)
+        const res = await fetch(`/api/markets/${encodeURIComponent(marketId)}/orders?wallet=${encodeURIComponent(walletAddress)}`)
         const json = await res.json()
         if (!res.ok || !json?.ok) return
         if (!mounted) return
@@ -153,7 +154,7 @@ export default function MarketDetailPage({ params }: { params: { marketId: strin
     return () => {
       mounted = false
     }
-  }, [params.marketId, walletAddress])
+  }, [marketId, walletAddress])
 
   async function placeOrder() {
     if (!connected || !publicKey) {
@@ -211,7 +212,7 @@ export default function MarketDetailPage({ params }: { params: { marketId: strin
     const issued_at = new Date().toISOString()
 
     const message = buildOrderMessage({
-      market_id: params.marketId,
+      market_id: marketId,
       wallet_address: publicKey.toBase58(),
       outcome,
       side,
@@ -242,7 +243,7 @@ export default function MarketDetailPage({ params }: { params: { marketId: strin
         sendTransaction,
       )
 
-      const res = await fetch(`/api/markets/${encodeURIComponent(params.marketId)}/orders`, {
+      const res = await fetch(`/api/markets/${encodeURIComponent(marketId)}/orders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -267,7 +268,7 @@ export default function MarketDetailPage({ params }: { params: { marketId: strin
 
       // Refresh my orders
       const res2 = await fetch(
-        `/api/markets/${encodeURIComponent(params.marketId)}/orders?wallet=${encodeURIComponent(publicKey.toBase58())}`,
+        `/api/markets/${encodeURIComponent(marketId)}/orders?wallet=${encodeURIComponent(publicKey.toBase58())}`,
       )
       const json2 = await res2.json()
       if (res2.ok && json2?.ok) setOrders(Array.isArray(json2?.orders) ? (json2.orders as OrderRow[]) : [])

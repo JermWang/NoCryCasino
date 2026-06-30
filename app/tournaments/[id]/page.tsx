@@ -4,10 +4,11 @@ import { TournamentLeaderboard } from "@/components/tournament-leaderboard"
 import { TournamentEntry } from "@/components/tournament-entry"
 import { createServerClient } from "@/lib/supabase/server"
 
-export default async function TournamentPage({ params }: { params: { id: string } }) {
+export default async function TournamentPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const supabase = await createServerClient()
 
-  const { data: tournament, error } = await supabase.from("tournaments").select("*").eq("id", params.id).single()
+  const { data: tournament, error } = await supabase.from("tournaments").select("*").eq("id", id).single()
 
   if (error || !tournament) {
     return (

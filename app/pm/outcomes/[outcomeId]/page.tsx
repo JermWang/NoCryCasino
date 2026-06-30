@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { use, useCallback, useEffect, useMemo, useState } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { useWalletModal } from "@solana/wallet-adapter-react-ui"
 import { ArrowLeft, Wallet } from "lucide-react"
@@ -80,12 +80,13 @@ async function loadOutcome(
   throw new Error("Outcome not found")
 }
 
-export default function PmOutcomePage({ params }: { params: { outcomeId: string } }) {
+export default function PmOutcomePage({ params }: { params: Promise<{ outcomeId: string }> }) {
+  const { outcomeId: rawOutcomeId } = use(params)
   const { connected } = useWallet()
   const { setVisible } = useWalletModal()
   const { state, refresh, availableFor } = usePmState()
 
-  const outcomeId = useMemo(() => decodeURIComponent(params.outcomeId ?? ""), [params.outcomeId])
+  const outcomeId = useMemo(() => decodeURIComponent(rawOutcomeId ?? ""), [rawOutcomeId])
   const roundHint = useMemo(() => {
     if (typeof window === "undefined") return null
     return new URLSearchParams(window.location.search).get("round")
