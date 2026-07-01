@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { enforceMaxBodyBytes, rateLimit, requireBearerIfConfigured } from "@/lib/api/guards"
+import { getExistingSignatures } from "@/lib/solana/rpc"
 
 function toISOStringFromAnyTimestamp(value: unknown): string | null {
   if (typeof value === "number") {
@@ -112,6 +113,19 @@ export async function POST(request: NextRequest) {
     const payload = await request.json()
     const events = Array.isArray(payload) ? payload : [payload]
 
+    // Anti-spoof: verify each event's signature exists on-chain before trusting it.
+    // The webhook is guarded only by a shared bearer, so a leaked token could inject
+    // fabricated trades (arbitrary raw + a made-up signature) that steer real-money
+    // settlement. We drop events whose signature is DEFINITIVELY not on-chain; if the
+    // verification RPC is unavailable we fail OPEN (keep the event) so ingestion never
+    // stalls on RPC downtime. Kill switch: HELIUS_VERIFY_ONCHAIN=false.
+    const verifyOnChain = String(process.env.HELIUS_VERIFY_ONCHAIN ?? "true").toLowerCase() !== "false"
+    const onchain = verifyOnChain
+      ? await getExistingSignatures(
+          events.map((e) => extractSignature(e)).filter((s): s is string => typeof s === "string" && s.length > 0),
+        )
+      : { existing: new Set<string>(), checked: new Set<string>() }
+
     const supabase = createServiceClient()
 
     const results = [] as Array<{ signature: string; stored: boolean; walletsLinked: number }>
@@ -119,6 +133,13 @@ export async function POST(request: NextRequest) {
     for (const evt of events) {
       const signature = extractSignature(evt)
       if (!signature) continue
+
+      // Drop fabricated events: a signature we definitively checked and that is not
+      // on-chain. (Unverified sigs — RPC failed for their batch — are kept: fail open.)
+      if (verifyOnChain && onchain.checked.has(signature) && !onchain.existing.has(signature)) {
+        results.push({ signature, stored: false, walletsLinked: 0 })
+        continue
+      }
 
       const blockTimeIso = extractBlockTime(evt)
       const slot = extractSlot(evt)

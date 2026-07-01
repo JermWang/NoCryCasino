@@ -25,9 +25,9 @@ const TICKER_ROWS: { name: string; val: string; color: string }[] = [
 ]
 
 const NAV_ITEMS: { href: string; label: string }[] = [
-  { href: "/markets", label: "Markets" },
+  { href: "/pm", label: "Markets" },
   { href: "/leaderboard", label: "Leaderboard" },
-  { href: "/pm", label: "Portfolio" },
+  { href: "/pm/me", label: "Portfolio" },
 ]
 
 function TickerRow({

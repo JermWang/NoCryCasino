@@ -139,6 +139,50 @@ export async function verifyTransactionWithFallback(
 }
 
 /**
+ * Batch-verify that transaction signatures exist on-chain (and did not fail).
+ *
+ * Used to reject FABRICATED ingestion events: the Helius webhook trusts a shared
+ * bearer, so a leaked token could let an attacker POST fake trades (arbitrary raw
+ * + a made-up signature) to steer real-money settlement. Verifying the signature
+ * on-chain at ingestion — when the tx is fresh and well within getSignatureStatuses'
+ * history — blocks made-up signatures at the door.
+ *
+ * Returns two sets:
+ *  - `existing`: signatures confirmed on-chain without error.
+ *  - `checked`:  signatures we got a DEFINITIVE answer for (their batch succeeded).
+ * Callers should drop an event only when its sig is in `checked` but not `existing`
+ * (definitively fabricated). A sig missing from `checked` means the RPC call failed
+ * for its batch — fail OPEN (keep it) so ingestion never depends on RPC uptime.
+ */
+export async function getExistingSignatures(
+  signatures: string[],
+): Promise<{ existing: Set<string>; checked: Set<string> }> {
+  const existing = new Set<string>()
+  const checked = new Set<string>()
+  const unique = Array.from(new Set(signatures.filter((s) => typeof s === "string" && s.length > 0)))
+
+  for (let i = 0; i < unique.length; i += 256) {
+    const batch = unique.slice(i, i + 256)
+    try {
+      const statuses = await withRpcFallback(
+        (connection) => connection.getSignatureStatuses(batch, { searchTransactionHistory: true }),
+        { maxRetries: 2, retryDelayMs: 400 },
+      )
+      const vals = statuses?.value ?? []
+      batch.forEach((sig, idx) => {
+        checked.add(sig)
+        const s = vals[idx]
+        if (s && !s.err) existing.add(sig)
+      })
+    } catch {
+      // Batch could not be verified — leave these sigs out of `checked` (fail open).
+    }
+  }
+
+  return { existing, checked }
+}
+
+/**
  * Get parsed transaction with fallback
  */
 export async function getParsedTransactionWithFallback(

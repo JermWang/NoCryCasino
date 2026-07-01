@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
+import { normalizeKolDisplayName } from "@/lib/utils"
 
 export const runtime = "nodejs"
 
@@ -26,7 +27,39 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ ro
 
     if (outcomesErr) return NextResponse.json({ error: outcomesErr.message }, { status: 500 })
 
-    return NextResponse.json({ ok: true, round, outcomes: outcomes ?? [] })
+    // Enrich each outcome with KOL identity (name / avatar / socials). pm_round_outcomes
+    // returns only kol_wallet_address, so without this every market renders as a truncated
+    // wallet. The UI reads outcome.kols.{display_name,avatar_url,twitter_handle,twitter_url}.
+    const list = Array.isArray(outcomes) ? (outcomes as any[]) : []
+    const wallets = Array.from(
+      new Set(list.map((o) => String(o?.kol_wallet_address ?? "")).filter((w) => w.length > 0)),
+    )
+
+    const kolByWallet = new Map<string, any>()
+    if (wallets.length > 0) {
+      const { data: kolRows } = await supabase
+        .from("kols")
+        .select("wallet_address, display_name, avatar_url, twitter_handle, twitter_url")
+        .in("wallet_address", wallets)
+      for (const k of (kolRows ?? []) as any[]) {
+        kolByWallet.set(String(k.wallet_address), k)
+      }
+    }
+
+    const enriched = list.map((o) => {
+      const k = kolByWallet.get(String(o?.kol_wallet_address ?? ""))
+      const kols = k
+        ? {
+            display_name: normalizeKolDisplayName(k.display_name),
+            avatar_url: k.avatar_url ?? null,
+            twitter_handle: k.twitter_handle ?? null,
+            twitter_url: k.twitter_url ?? null,
+          }
+        : (o?.kols ?? null)
+      return { ...o, kols }
+    })
+
+    return NextResponse.json({ ok: true, round, outcomes: enriched })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? String(e) }, { status: 500 })
   }
