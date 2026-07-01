@@ -154,27 +154,118 @@ export async function getParsedTransactionWithFallback(
 }
 
 /**
- * Send and confirm transaction with fallback
+ * Best-effort signature status across fallback endpoints.
+ * Returns "confirmed" if the tx landed successfully, "failed" if it landed with
+ * an error, or "unknown" if it cannot be found (not yet propagated / expired).
+ */
+async function getSignatureLanded(signature: string): Promise<"confirmed" | "failed" | "unknown"> {
+  const endpoints = getRpcEndpoints()
+  for (const endpoint of endpoints) {
+    try {
+      const connection = new Connection(endpoint, "confirmed")
+      const res = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })
+      const s = res?.value?.[0]
+      if (!s) continue
+      if (s.err) return "failed"
+      if (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized") return "confirmed"
+      if (typeof s.confirmations === "number") return "confirmed"
+    } catch {
+      // try the next endpoint
+    }
+  }
+  return "unknown"
+}
+
+/**
+ * Broadcast an ALREADY-SIGNED, serialized transaction and confirm it, retrying
+ * ONLY the submit/confirm of the identical bytes across fallback endpoints.
+ *
+ * This is the money-safe way to send a payout. Because the transaction is signed
+ * once (a single recentBlockhash => a single signature), re-broadcasting is
+ * idempotent: Solana dedups by signature so the tx can land AT MOST ONCE, and once
+ * the blockhash expires it can never land. NEVER rebuild/re-sign a payout inside a
+ * retry loop — a fresh blockhash yields a NEW signature that could ALSO land,
+ * double-paying from escrow.
+ *
+ * On a confirmation timeout we check the signature status before retrying, so a tx
+ * that landed-but-timed-out is reported as SUCCESS (not re-sent, and — critically —
+ * not reported as failed, which would wrongly re-credit funds that already left).
+ */
+export async function broadcastSignedTransaction(args: {
+  rawTx: Buffer | Uint8Array
+  blockhash: string
+  lastValidBlockHeight: number
+  commitment?: "confirmed" | "finalized"
+  maxRetries?: number
+}): Promise<string> {
+  const commitment = args.commitment ?? "confirmed"
+  const maxRetries = Math.max(1, args.maxRetries ?? 4)
+  const endpoints = getRpcEndpoints()
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    for (const endpoint of endpoints) {
+      const connection = new Connection(endpoint, commitment)
+      let sig: string | null = null
+      try {
+        // Re-sending identical signed bytes is safe (same signature => on-chain dedup).
+        sig = await connection.sendRawTransaction(args.rawTx, { skipPreflight: false, maxRetries: 3 })
+      } catch (e: any) {
+        lastError = e instanceof Error ? e : new Error(String(e))
+      }
+
+      if (sig) {
+        try {
+          await connection.confirmTransaction(
+            { signature: sig, blockhash: args.blockhash, lastValidBlockHeight: args.lastValidBlockHeight },
+            commitment,
+          )
+          return sig
+        } catch (e: any) {
+          lastError = e instanceof Error ? e : new Error(String(e))
+          // Confirm errored/timed out — the tx may STILL have landed. Check before retrying
+          // so we neither double-send nor wrongly treat a landed payout as failed.
+          const status = await getSignatureLanded(sig)
+          if (status === "confirmed") return sig
+          if (status === "failed") throw new Error(`transaction failed on-chain (${sig}): ${lastError?.message ?? ""}`)
+          // status === "unknown": not landed yet -> fall through and retry the SAME bytes.
+        }
+      }
+    }
+    if (attempt < maxRetries - 1) await sleep(500 * (attempt + 1))
+  }
+
+  throw lastError ?? new Error("broadcast failed: transaction not confirmed")
+}
+
+/**
+ * Send and confirm transaction with fallback.
+ *
+ * NOTE: `serializedTx` must already be signed with a recentBlockhash. This
+ * delegates to broadcastSignedTransaction so retries re-send the identical bytes
+ * (idempotent) rather than re-signing. Callers should pass the same blockhash the
+ * tx was signed with; if omitted we fetch one only to bound the confirm window.
  */
 export async function sendAndConfirmWithFallback(
   serializedTx: Buffer | Uint8Array,
-  options?: RpcCallOptions & { skipPreflight?: boolean }
+  options?: RpcCallOptions & { skipPreflight?: boolean; blockhash?: string; lastValidBlockHeight?: number }
 ): Promise<string> {
-  return withRpcFallback(async (connection) => {
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash(
-      options?.commitment ?? "confirmed"
+  let blockhash = options?.blockhash
+  let lastValidBlockHeight = options?.lastValidBlockHeight
+  if (!blockhash || typeof lastValidBlockHeight !== "number") {
+    const latest = await withRpcFallback(
+      (connection) => connection.getLatestBlockhash(options?.commitment ?? "confirmed"),
+      options,
     )
+    blockhash = blockhash ?? latest.blockhash
+    lastValidBlockHeight = typeof lastValidBlockHeight === "number" ? lastValidBlockHeight : latest.lastValidBlockHeight
+  }
 
-    const sig = await connection.sendRawTransaction(serializedTx, {
-      skipPreflight: options?.skipPreflight ?? false,
-      maxRetries: 3,
-    })
-
-    await connection.confirmTransaction(
-      { signature: sig, blockhash, lastValidBlockHeight },
-      options?.commitment ?? "confirmed"
-    )
-
-    return sig
-  }, options)
+  return broadcastSignedTransaction({
+    rawTx: serializedTx,
+    blockhash,
+    lastValidBlockHeight,
+    commitment: options?.commitment === "finalized" ? "finalized" : "confirmed",
+    maxRetries: options?.maxRetries,
+  })
 }

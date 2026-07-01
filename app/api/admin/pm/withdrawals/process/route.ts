@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { enforceMaxBodyBytes, rateLimit, requireBearerIfConfigured } from "@/lib/api/guards"
 import { isEmergencyHaltActive, logEscrowOperation } from "@/lib/escrow/security"
-import { withRpcFallback } from "@/lib/solana/rpc"
+import { broadcastSignedTransaction, withRpcFallback } from "@/lib/solana/rpc"
 import { isUsdcMint, getUsdcMint, buildUsdcTransfer, getUsdcAtaBalanceHuman } from "@/lib/solana/spl"
 
 export const runtime = "nodejs"
@@ -79,7 +79,8 @@ async function pickKeypairForLamports(lamports: number): Promise<{ address: stri
       const bal = await connection.getBalance(new PublicKey(p.address), "confirmed")
       if (typeof bal === "number" && Number.isFinite(bal) && bal >= needed) return p
     }
-    return parsed[0]!
+    // Fail closed rather than broadcasting from an underfunded wallet.
+    throw new Error("ESCROW_SOL_INSUFFICIENT")
   }, { maxRetries: 2, retryDelayMs: 500 })
 }
 
@@ -88,29 +89,27 @@ async function sendSol(args: { fromKeypair: any; toAddress: string; lamports: nu
 
   const toPubkey = new PublicKey(args.toAddress)
 
-  return withRpcFallback(async (connection) => {
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
+  // Build + sign ONCE, then retry only submit/confirm of the identical bytes. NEVER
+  // rebuild/re-sign inside the retry loop: a new blockhash = a new signature that could
+  // ALSO land, double-paying escrow. See lib/solana/rpc.ts broadcastSignedTransaction.
+  const { rawTx, blockhash, lastValidBlockHeight } = await withRpcFallback(
+    async (connection) => {
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed")
+      const tx = new Transaction({ feePayer: args.fromKeypair.publicKey, recentBlockhash: blockhash })
+      tx.add(
+        SystemProgram.transfer({
+          fromPubkey: args.fromKeypair.publicKey,
+          toPubkey,
+          lamports: args.lamports,
+        }),
+      )
+      tx.sign(args.fromKeypair)
+      return { rawTx: tx.serialize(), blockhash, lastValidBlockHeight }
+    },
+    { maxRetries: 2, retryDelayMs: 500 },
+  )
 
-    const tx = new Transaction({ feePayer: args.fromKeypair.publicKey, recentBlockhash: blockhash })
-    tx.add(
-      SystemProgram.transfer({
-        fromPubkey: args.fromKeypair.publicKey,
-        toPubkey,
-        lamports: args.lamports,
-      }),
-    )
-
-    tx.sign(args.fromKeypair)
-
-    const sig = await connection.sendRawTransaction(tx.serialize(), {
-      skipPreflight: false,
-      maxRetries: 3,
-    })
-
-    await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed")
-
-    return sig
-  }, { maxRetries: 3, retryDelayMs: 1000 })
+  return broadcastSignedTransaction({ rawTx, blockhash, lastValidBlockHeight })
 }
 
 // Parse all configured escrow keypairs (honors PM_ESCROW_WALLET_ADDRESS).
@@ -160,21 +159,25 @@ async function pickKeypairForUsdc(amountHuman: number, mint: string): Promise<{ 
 }
 
 async function sendUsdc(args: { fromKeypair: any; toOwner: string; amountHuman: number; mint: string }): Promise<string> {
-  return withRpcFallback(async (connection) => {
-    const tx = await buildUsdcTransfer({
-      connection,
-      fromOwnerKeypair: args.fromKeypair,
-      toOwner: args.toOwner,
-      amountHuman: args.amountHuman,
-      mint: args.mint,
-    })
-    const blockhash = tx.recentBlockhash as string
-    const currentHeight = await connection.getBlockHeight("confirmed")
-    const lastValidBlockHeight = currentHeight + 150
-    const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 })
-    await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed")
-    return sig
-  }, { maxRetries: 3, retryDelayMs: 1000 })
+  // Build + sign ONCE (includes any destination-ATA creation), then retry only the
+  // submit/confirm of the identical bytes — cannot double-transfer or double-create the ATA.
+  const { rawTx, blockhash, lastValidBlockHeight } = await withRpcFallback(
+    async (connection) => {
+      const tx = await buildUsdcTransfer({
+        connection,
+        fromOwnerKeypair: args.fromKeypair,
+        toOwner: args.toOwner,
+        amountHuman: args.amountHuman,
+        mint: args.mint,
+      })
+      const blockhash = tx.recentBlockhash as string
+      const currentHeight = await connection.getBlockHeight("confirmed")
+      return { rawTx: tx.serialize(), blockhash, lastValidBlockHeight: currentHeight + 150 }
+    },
+    { maxRetries: 2, retryDelayMs: 500 },
+  )
+
+  return broadcastSignedTransaction({ rawTx, blockhash, lastValidBlockHeight })
 }
 
 export async function POST(request: NextRequest) {

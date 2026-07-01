@@ -144,6 +144,10 @@ async function tick(request: NextRequest): Promise<NextResponse> {
     kol_selection: "active",
     min_recent_txs: 2,
   })
+  // Recover withdrawals stranded in SENDING (worker crash/timeout mid-send) before
+  // processing REQUESTED ones — reap requeues them (after on-chain verification) so
+  // the processor can retry, preventing user funds from freezing indefinitely.
+  steps.reapWithdrawals = await runStep("reapWithdrawals", baseUrl, "/api/admin/pm/withdrawals/reap", adminKey)
   steps.withdrawals = await runStep("withdrawals", baseUrl, "/api/admin/pm/withdrawals/process", adminKey)
 
   // Daily $NOCRY holder fee distribution. Gated to a short post-settlement
