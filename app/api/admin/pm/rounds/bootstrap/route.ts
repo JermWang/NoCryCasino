@@ -244,6 +244,16 @@ export async function POST(request: NextRequest) {
 
     const market_kind = normalizeMarketKind(body?.market_kind)
 
+    // HEAD_TO_HEAD settlement is not implemented (the settle route deliberately skips it),
+    // so a bootstrapped H2H round would accept bets that can never be paid out or refunded.
+    // Refuse to create one until settlement lands. See app/api/admin/pm/rounds/settle/route.ts.
+    if (market_kind === "HEAD_TO_HEAD") {
+      return NextResponse.json(
+        { error: "HEAD_TO_HEAD markets are not yet supported (settlement unimplemented)" },
+        { status: 400 },
+      )
+    }
+
     // kind_params persists kind-specific config (e.g. {"n":3} for TOP_N,
     // {"a","b"} for HEAD_TO_HEAD). For TOP_N we also pin n so settlement can
     // read it straight off the round without re-deriving the default.
@@ -275,6 +285,28 @@ export async function POST(request: NextRequest) {
           ? new Date(body.lock_ts).toISOString()
           : pickLockTs(market_type)
 
+      const round_id = `${market_type}:${lockTs}`
+
+      // Insert-if-absent: bootstrap must NEVER mutate an existing round. Re-opening a
+      // locked/settled round (or re-activating its outcomes) would re-accept bets on an
+      // already-decided market and could reverse a settlement. Skipping early also avoids
+      // the expensive KOL scan on every cron tick once the round already exists.
+      const { data: existingRound, error: existErr } = await supabase
+        .from("market_rounds")
+        .select("round_id, status")
+        .eq("round_id", round_id)
+        .maybeSingle()
+      if (existErr) return NextResponse.json({ error: existErr.message }, { status: 500 })
+      if (existingRound) {
+        created.push({
+          round_id,
+          market_type,
+          skipped: true,
+          reason: `already exists (status=${String((existingRound as any).status ?? "?")})`,
+        })
+        continue
+      }
+
       const lockMs = Date.parse(lockTs)
       const startTs = new Date(lockMs - getDeltaMs(market_type)).toISOString()
       const settleTs = new Date(lockMs + settleDelayMin * 60_000).toISOString()
@@ -303,7 +335,6 @@ export async function POST(request: NextRequest) {
               }
             })()
 
-      const round_id = `${market_type}:${lockTs}`
       const escrow_wallet_pubkey = pickEscrowAddress(round_id, escrowAddresses)
       if (!escrow_wallet_pubkey) return NextResponse.json({ error: "Missing escrow wallet addresses" }, { status: 500 })
 
@@ -312,25 +343,34 @@ export async function POST(request: NextRequest) {
         .digest("hex")
         .slice(0, 32)
 
-      const { error: roundErr } = await supabase.from("market_rounds").upsert(
-        {
-          round_id,
-          market_type,
-          start_ts: startTs,
-          lock_ts: lockTs,
-          settle_ts: settleTs,
-          status: "OPEN",
-          collateral_mint,
-          escrow_wallet_pubkey,
-          rake_bps,
-          inputs_hash,
-          market_kind,
-          kind_params,
-        },
-        { onConflict: "round_id" },
-      )
+      // Insert-only (ON CONFLICT DO NOTHING). Combined with the existence check above this
+      // guards against a race with a concurrent tick and never overwrites an existing round.
+      const { data: insertedRound, error: roundErr } = await supabase
+        .from("market_rounds")
+        .upsert(
+          {
+            round_id,
+            market_type,
+            start_ts: startTs,
+            lock_ts: lockTs,
+            settle_ts: settleTs,
+            status: "OPEN",
+            collateral_mint,
+            escrow_wallet_pubkey,
+            rake_bps,
+            inputs_hash,
+            market_kind,
+            kind_params,
+          },
+          { onConflict: "round_id", ignoreDuplicates: true },
+        )
+        .select("round_id")
 
       if (roundErr) return NextResponse.json({ error: roundErr.message }, { status: 500 })
+      if (!insertedRound || insertedRound.length === 0) {
+        created.push({ round_id, market_type, skipped: true, reason: "created concurrently" })
+        continue
+      }
 
       const selectedKolsRows = Array.isArray((selectedKols as any)?.kols) ? ((selectedKols as any).kols as any[]) : ((selectedKols as any) ?? [])
       const selectionFallback = typeof (selectedKols as any)?.selection_fallback === "string" ? String((selectedKols as any).selection_fallback) : null

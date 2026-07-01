@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { enforceMaxBodyBytes, rateLimit, requireBearerIfConfigured } from "@/lib/api/guards"
 import { isEmergencyHaltActive } from "@/lib/escrow/security"
-import { createLeaderboardSnapshot, getLeaderboardSnapshot, saveLeaderboardSnapshot, type WindowKey } from "@/lib/analytics/snapshot"
+import { checkIngestionFreshness, createLeaderboardSnapshot, getLeaderboardSnapshot, saveLeaderboardSnapshot, type WindowKey } from "@/lib/analytics/snapshot"
 
 export const runtime = "nodejs"
 
@@ -203,6 +203,43 @@ export async function POST(request: NextRequest) {
 
       const window_key = windowKeyForMarketType(r.market_type)
       const closes_at = new Date(String(r.lock_ts)).toISOString()
+
+      // Freshness gate (real-money safety): never settle on a stale/incomplete Helius feed.
+      // If ingestion is lagging or the window is under-covered, defer settlement to a later
+      // tick (revert our SETTLING claim back to LOCKED) instead of paying the wrong side.
+      // A round left LOCKED is a safe, recoverable state; pm_settle is idempotent/irreversible
+      // so a wrong settlement cannot be undone. Skipped for dry_run previews.
+      if (!dry_run) {
+        const freshness = await checkIngestionFreshness({
+          window_key,
+          closes_at,
+          max_staleness_minutes: 120,
+          min_event_count: 10,
+        })
+        if (!freshness.ok) {
+          if (roundStatus === "LOCKED") {
+            await supabase
+              .from("market_rounds")
+              .update({ status: "LOCKED" })
+              .eq("round_id", r.round_id)
+              .eq("status", "SETTLING")
+          }
+          results.push({
+            round_id: r.round_id,
+            window_key,
+            closes_at,
+            skipped: true,
+            reason: "ingestion not fresh — settlement deferred",
+            freshness: {
+              reasons: freshness.reasons,
+              latest_block_time: freshness.latest_block_time,
+              staleness_minutes: freshness.staleness_minutes,
+              event_count: freshness.event_count,
+            },
+          })
+          continue
+        }
+      }
 
       let snapshot = use_snapshot ? await getLeaderboardSnapshot({ window_key, closes_at }) : null
       if (!snapshot) {

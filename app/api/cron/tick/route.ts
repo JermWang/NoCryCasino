@@ -71,7 +71,13 @@ function isSameOrigin(request: NextRequest): boolean {
   }
 }
 
-async function runStep(name: string, baseUrl: string, path: string, adminKey: string | undefined): Promise<StepResult> {
+async function runStep(
+  name: string,
+  baseUrl: string,
+  path: string,
+  adminKey: string | undefined,
+  payload?: unknown,
+): Promise<StepResult> {
   const url = `${baseUrl}${path}`
   try {
     const res = await fetch(url, {
@@ -81,9 +87,9 @@ async function runStep(name: string, baseUrl: string, path: string, adminKey: st
         // Each downstream admin route authenticates with ADMIN_API_KEY.
         ...(adminKey ? { authorization: `Bearer ${adminKey}` } : {}),
       },
-      // All four admin routes accept POST with an optional JSON body and no
-      // required fields, so an empty object is the correct sensible default.
-      body: JSON.stringify({}),
+      // Downstream admin routes accept POST with an optional JSON body; an empty
+      // object is the default, but a step may pass config (e.g. bootstrap params).
+      body: JSON.stringify(payload ?? {}),
       cache: "no-store",
     })
 
@@ -127,9 +133,18 @@ async function tick(request: NextRequest): Promise<NextResponse> {
   const steps: Record<string, StepResult> = {}
 
   steps.lock = await runStep("lock", baseUrl, "/api/admin/pm/rounds/lock", adminKey)
-  steps.settle = await runStep("settle", baseUrl, "/api/admin/pm/rounds/settle", adminKey)
-  steps.withdrawals = await runStep("withdrawals", baseUrl, "/api/admin/pm/withdrawals/process", adminKey)
+  // Sync ingestion BEFORE settling so the freshness gate + snapshot see the latest tx_events.
   steps.heliusSync = await runStep("heliusSync", baseUrl, "/api/admin/helius/webhook/sync", adminKey)
+  steps.settle = await runStep("settle", baseUrl, "/api/admin/pm/rounds/settle", adminKey)
+  // Keep an OPEN round live for every market_type. Bootstrap is now insert-if-absent
+  // (never mutates an existing round), so calling it every tick is idempotent and cheap.
+  steps.bootstrap = await runStep("bootstrap", baseUrl, "/api/admin/pm/rounds/bootstrap", adminKey, {
+    market_type: "ALL",
+    limit_kols: 30,
+    kol_selection: "active",
+    min_recent_txs: 2,
+  })
+  steps.withdrawals = await runStep("withdrawals", baseUrl, "/api/admin/pm/withdrawals/process", adminKey)
 
   // Daily $NOCRY holder fee distribution. Gated to a short post-settlement
   // window (00:30–00:35 UTC; settlements run at 00:15) so the expensive on-chain
