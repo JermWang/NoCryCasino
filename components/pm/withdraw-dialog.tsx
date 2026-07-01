@@ -206,7 +206,8 @@ export function WithdrawDialog({ open, onOpenChange, balances, initialMint, onWi
           </button>
 
           <p className="text-center text-[11px] text-muted-foreground">
-            Withdrawals are processed automatically. Reserved (in-play) balance can&apos;t be withdrawn until rounds settle.
+            Withdrawals are processed automatically. A small Solana network fee is deducted from the amount you receive.
+            Reserved (in-play) balance can&apos;t be withdrawn until rounds settle.
           </p>
         </div>
       </DialogContent>

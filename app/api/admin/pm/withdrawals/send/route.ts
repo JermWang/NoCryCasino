@@ -2,9 +2,11 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { enforceMaxBodyBytes, rateLimit, requireBearerIfConfigured } from "@/lib/api/guards"
 import { isEmergencyHaltActive } from "@/lib/escrow/security"
-import { broadcastSignedTransaction, withRpcFallback } from "@/lib/solana/rpc"
+import { broadcastSignedTransaction, getConnection, withRpcFallback } from "@/lib/solana/rpc"
 import { logEscrowOperation } from "@/lib/escrow/security"
 import { isUsdcMint, getUsdcMint, buildUsdcTransfer, getUsdcAtaBalanceHuman } from "@/lib/solana/spl"
+import { getSolPriceUsd } from "@/lib/analytics/snapshot"
+import { netSolPayoutLamports, netUsdcPayout } from "@/lib/pm/withdrawal-fees"
 
 export const runtime = "nodejs"
 
@@ -274,8 +276,18 @@ export async function POST(request: NextRequest) {
 
       if (isUsdc) {
         const usdcMint = getUsdcMint()
-        const { address: escrowAddress, keypair } = await pickKeypairForUsdc(amount, usdcMint)
-        const sig = await sendUsdc({ fromKeypair: keypair, toOwner: toAddress, amountHuman: amount, mint: usdcMint })
+        // User pays gas: deduct the SOL fee (+ ATA rent if the recipient ATA must be created), priced in USDC.
+        const solPriceUsd = await getSolPriceUsd()
+        const { sendHuman } = await netUsdcPayout({
+          connection: getConnection(),
+          destinationOwner: toAddress,
+          mint: usdcMint,
+          amountHuman: amount,
+          solPriceUsd,
+        })
+        if (!(sendHuman > 0)) throw new Error("AMOUNT_BELOW_NETWORK_FEE")
+        const { address: escrowAddress, keypair } = await pickKeypairForUsdc(sendHuman, usdcMint)
+        const sig = await sendUsdc({ fromKeypair: keypair, toOwner: toAddress, amountHuman: sendHuman, mint: usdcMint })
 
         await logEscrowOperation({
           operation: "payout",
@@ -339,8 +351,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, withdrawal_id, status: "PROPOSED", custody_mode: "squads", proposal })
       }
 
-      const { address: escrowAddress, keypair } = await pickKeypairForWithdrawalLamports(lamports)
-      const sig = await sendSol({ fromKeypair: keypair, toAddress, lamports })
+      // User pays gas: send (amount − network fee); escrow net outflow == amount debited.
+      const { sendLamports } = netSolPayoutLamports(amount)
+      if (!(sendLamports > 0)) throw new Error("AMOUNT_BELOW_NETWORK_FEE")
+      const { address: escrowAddress, keypair } = await pickKeypairForWithdrawalLamports(sendLamports)
+      const sig = await sendSol({ fromKeypair: keypair, toAddress, lamports: sendLamports })
 
       await logEscrowOperation({
         operation: "payout",

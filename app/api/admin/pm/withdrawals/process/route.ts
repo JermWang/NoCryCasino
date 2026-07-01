@@ -2,8 +2,10 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { enforceMaxBodyBytes, rateLimit, requireBearerIfConfigured } from "@/lib/api/guards"
 import { isEmergencyHaltActive, logEscrowOperation } from "@/lib/escrow/security"
-import { broadcastSignedTransaction, withRpcFallback } from "@/lib/solana/rpc"
+import { broadcastSignedTransaction, getConnection, withRpcFallback } from "@/lib/solana/rpc"
 import { isUsdcMint, getUsdcMint, buildUsdcTransfer, getUsdcAtaBalanceHuman } from "@/lib/solana/spl"
+import { getSolPriceUsd } from "@/lib/analytics/snapshot"
+import { netSolPayoutLamports, netUsdcPayout } from "@/lib/pm/withdrawal-fees"
 
 export const runtime = "nodejs"
 
@@ -273,16 +275,30 @@ export async function POST(request: NextRequest) {
 
         if (isUsdc) {
           const usdcMint = getUsdcMint()
-          const picked = await pickKeypairForUsdc(amount, usdcMint)
+          // User pays gas: deduct the SOL fee (+ ATA rent if the recipient ATA must be
+          // created) from the payout, priced in USDC, so the house never eats gas.
+          const solPriceUsd = await getSolPriceUsd()
+          const { sendHuman } = await netUsdcPayout({
+            connection: getConnection(),
+            destinationOwner: toAddress,
+            mint: usdcMint,
+            amountHuman: amount,
+            solPriceUsd,
+          })
+          if (!(sendHuman > 0)) throw new Error("AMOUNT_BELOW_NETWORK_FEE")
+          const picked = await pickKeypairForUsdc(sendHuman, usdcMint)
           escrowAddress = picked.address
           fromWallet = picked.keypair.publicKey?.toBase58?.() ?? undefined
-          sig = await sendUsdc({ fromKeypair: picked.keypair, toOwner: toAddress, amountHuman: amount, mint: usdcMint })
+          sig = await sendUsdc({ fromKeypair: picked.keypair, toOwner: toAddress, amountHuman: sendHuman, mint: usdcMint })
         } else {
-          const lamports = Math.floor(amount * 1e9)
-          const picked = await pickKeypairForLamports(lamports)
+          // User pays gas: send (amount − network fee); the escrow's net outflow
+          // (payout + fee it pays as signer) equals the amount debited from the user.
+          const { sendLamports } = netSolPayoutLamports(amount)
+          if (!(sendLamports > 0)) throw new Error("AMOUNT_BELOW_NETWORK_FEE")
+          const picked = await pickKeypairForLamports(sendLamports)
           escrowAddress = picked.address
           fromWallet = picked.keypair.publicKey?.toBase58?.() ?? undefined
-          sig = await sendSol({ fromKeypair: picked.keypair, toAddress, lamports })
+          sig = await sendSol({ fromKeypair: picked.keypair, toAddress, lamports: sendLamports })
         }
 
         await logEscrowOperation({
